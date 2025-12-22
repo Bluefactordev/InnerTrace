@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "innertrace"
+version = "0.1.0"
+description = "InnerTrace - Event-sourcing tracing system for LLM orchestration with semantic storytelling layer"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Bluefactor", email = "dev@bluefactor.it"}
+]
+keywords = ["tracing", "llm", "observability", "debugging", "event-sourcing", "storytelling"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Logging",
+]
+dependencies = [
+    "ulid-py>=1.1.0",  # Better run IDs
+]
+
+[project.optional-dependencies]
+synthesis = [
+    "aiohttp>=3.8.0",  # For OpenAI-compatible API calls
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+trace = "tracing.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/bluefactor/InnerTrace"
+Documentation = "https://github.com/bluefactor/InnerTrace/blob/main/README.md"
+Repository = "https://github.com/bluefactor/InnerTrace"
+Issues = "https://github.com/bluefactor/InnerTrace/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tracing*"]
+exclude = ["tests*", "examples*", "docs*"]

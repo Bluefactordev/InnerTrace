@@ -1,0 +1,18 @@
+{
+  "models": {
+    "low": {
+      "model": "vllm/google/gemma-3-270m-it",
+      "description": "Fast and cost-effective Gemma model for quick synthesis"
+    },
+    "high": {
+      "model": "vllm/qwen3-30b-a3b-thinking-2507-awq-4bit",
+      "description": "More capable Qwen model for better quality synthesis"
+    }
+  },
+  "default_quality": "high",
+  "base_url": "http://localhost:5099/v1",
+  "synthesis_timeout": 120,
+  "synthesis_max_concurrent": 5
+}
+
+
