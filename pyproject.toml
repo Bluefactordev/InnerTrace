@@ -2,17 +2,30 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+
 [project]
 name = "innertrace"
 version = "0.1.0"
-description = "InnerTrace - Event-sourcing tracing system for LLM orchestration with semantic storytelling layer"
+description = "InnerTrace — Event-sourcing tracing system for LLM orchestration with a semantic storytelling layer"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = { text = "MIT" }
+
 authors = [
-    {name = "Bluefactor", email = "dev@bluefactor.it"}
+    { name = "Bluefactor", email = "dev@bluefactor.it" }
 ]
-keywords = ["tracing", "llm", "observability", "debugging", "event-sourcing", "storytelling"]
+
+keywords = [
+    "tracing",
+    "llm",
+    "observability",
+    "debugging",
+    "event-sourcing",
+    "storytelling",
+    "agents",
+    "ai"
+]
+
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -24,32 +37,39 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Debuggers",
     "Topic :: System :: Logging",
+    "Topic :: Software Development :: Libraries"
 ]
+
 dependencies = [
-    "ulid-py>=1.1.0",  # Better run IDs
+    "ulid-py>=1.1.0"
 ]
+
 
 [project.optional-dependencies]
 synthesis = [
-    "aiohttp>=3.8.0",  # For OpenAI-compatible API calls
+    "aiohttp>=3.8.0"
 ]
+
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "mypy>=1.0.0",
+    "mypy>=1.0.0"
 ]
 
+
 [project.scripts]
-trace = "tracing.cli:main"
+innertrace = "innertrace.tracing.cli:main"
+
 
 [project.urls]
-Homepage = "https://github.com/bluefactor/InnerTrace"
-Documentation = "https://github.com/bluefactor/InnerTrace/blob/main/README.md"
-Repository = "https://github.com/bluefactor/InnerTrace"
-Issues = "https://github.com/bluefactor/InnerTrace/issues"
+Homepage = "https://github.com/Bluefactordev/InnerTrace"
+Documentation = "https://github.com/Bluefactordev/InnerTrace/blob/main/README.md"
+Repository = "https://github.com/Bluefactordev/InnerTrace"
+Issues = "https://github.com/Bluefactordev/InnerTrace/issues"
+
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["tracing*"]
+include = ["innertrace*"]
 exclude = ["tests*", "examples*", "docs*"]
