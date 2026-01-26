@@ -1,7 +1,7 @@
-# InnerTrace v0.1: Event-Sourcing Tracing for LLM Orchestration
+# InnerTrace v0.2: Event-Sourcing Tracing for LLM Orchestration
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](https://github.com/bluefactor/InnerTrace)
+[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](https://github.com/bluefactor/InnerTrace)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 Structured tracing system for LLM orchestration with causal graph, deterministic projections, and **semantic storytelling layer**.
@@ -46,6 +46,14 @@ This is a **systems observability project** focused on:
 
 **Not about**: evaluation quality, fine-tuning, RAG quality, or custom evaluators.
 
+## What's New in v0.2
+
+- ✅ **Function-level tracing** - Decorators `@trace_function`, `trace_module`, `trace_block` for automatic instrumentation
+- ✅ **Web templates** - HTML templates for dashboard, runs, and timeline views
+- ✅ **Enhanced synthesis** - Improved LLM synthesis with configurable models
+- ✅ **Improved projections** - Better timeline views and run management
+- ✅ **Test suite** - Comprehensive tests for function tracing and serialization
+
 ## What's New in v0.1
 
 - ✅ **Storytelling semantic layer** (`story.*` events)
@@ -54,6 +62,10 @@ This is a **systems observability project** focused on:
 - ✅ **Backward compatibility** - Falls back to legacy JSON files
 - ✅ **Blob-referenced content** - Large prompts/responses use blob store (no duplication)
 - ✅ **Linking not copying** - story.link references execution events via span_id
+
+## Stability Guarantees (v0.2)
+
+The v0.1 API remains stable. New features in v0.2 are additive and backward compatible.
 
 ## Stability Guarantees (v0.1)
 
