@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
-    from ulid import ULID
+    import ulid
     def generate_id() -> str:
-        return str(ULID())
+        return str(ulid.new())
 except ImportError:
     import uuid
     def generate_id() -> str:
@@ -42,6 +42,7 @@ from .redact import redact_payload, truncate_preview
 #
 # Sandbox events:
 #   - sandbox.exec.start, sandbox.exec.end: Code execution in sandbox
+#   - code_execution_error: Explicit error event for code execution failures with raw stack trace
 #
 # Storytelling events (semantic layer):
 #
@@ -573,3 +574,43 @@ def emit_sandbox_exec_end(tracer: Tracer, status: str = "ok", stdout: Optional[s
         payload["error_ref"] = tracer.put_blob(error, "txt")
 
     tracer.emit(type="sandbox.exec.end", actor=actor, level="info" if status == "ok" else "error", payload=payload)
+
+
+def emit_code_execution_error(tracer: Tracer, code: str, stack_trace: str, error_message: Optional[str] = None,
+                              stdout: Optional[str] = None, stderr: Optional[str] = None,
+                              actor: str = "sandbox"):
+    """
+    Emit code_execution_error event with raw Python stack trace.
+    
+    This event is specifically designed to help LLMs debug code execution failures
+    by providing the raw stack trace directly in the trace, without requiring
+    them to read through the narrative synthesis.
+    
+    Args:
+        tracer: Tracer instance
+        code: The code that failed to execute
+        stack_trace: Raw Python stack trace (from traceback.format_exc())
+        error_message: Optional error message summary
+        stdout: Optional stdout output before error
+        stderr: Optional stderr output before error
+        actor: Actor where error occurred (default: "sandbox")
+    """
+    # Store code and stack trace in blobs
+    code_ref = tracer.put_blob(code, "txt")
+    stack_trace_ref = tracer.put_blob(stack_trace, "txt")
+    
+    payload = {
+        "code_ref": code_ref,
+        "stack_trace_ref": stack_trace_ref,
+    }
+    
+    if error_message:
+        payload["error_message"] = error_message
+    
+    if stdout:
+        payload["stdout_ref"] = tracer.put_blob(stdout, "txt")
+    
+    if stderr:
+        payload["stderr_ref"] = tracer.put_blob(stderr, "txt")
+    
+    tracer.emit(type="code_execution_error", actor=actor, level="error", payload=payload)

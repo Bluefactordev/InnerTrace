@@ -1,0 +1,90 @@
+{
+  "quality_levels": {
+    "low": {
+      "providers": [
+        {
+          "type": "openai_compatible",
+          "base_url": "http://YOUR_API_SERVER:5099/v1",
+          "model": "vllm/google/gemma-3-270m-it",
+          "api_key": "YOUR_API_KEY_HERE",
+          "timeout": 60,
+          "max_tokens": 500,
+          "max_concurrent": 5,
+          "connectivity_test_timeout": 10.0
+        },
+        {
+          "type": "vllm",
+          "host": "127.0.0.1",
+          "port": 8081,
+          "model": "vllm/google/gemma-3-270m-it",
+          "timeout": 60,
+          "max_tokens": 500,
+          "max_concurrent": 5,
+          "connectivity_test_timeout": 5.0
+        },
+        {
+          "type": "truncation",
+          "max_tokens": 500
+        }
+      ]
+    },
+    "medium": {
+      "providers": [
+        {
+          "type": "openai_compatible",
+          "base_url": "http://YOUR_API_SERVER:5099/v1",
+          "model": "vllm/qwen3-14b-fp8",
+          "api_key": "YOUR_API_KEY_HERE",
+          "timeout": 60,
+          "max_tokens": 500,
+          "max_concurrent": 5,
+          "connectivity_test_timeout": 10.0
+        },
+        {
+          "type": "vllm",
+          "host": "127.0.0.1",
+          "port": 8000,
+          "model": "vllm/qwen3-14b-fp8",
+          "timeout": 60,
+          "max_tokens": 500,
+          "max_concurrent": 5,
+          "connectivity_test_timeout": 5.0
+        },
+        {
+          "type": "truncation",
+          "max_tokens": 500
+        }
+      ]
+    },
+    "high": {
+      "providers": [
+        {
+          "type": "openai_compatible",
+          "base_url": "http://YOUR_API_SERVER:5099/v1",
+          "model": "vllm/qwen3-30b-a3b-thinking-2507-awq-4bit",
+          "api_key": "YOUR_API_KEY_HERE",
+          "timeout": 60,
+          "max_tokens": 500,
+          "max_concurrent": 5,
+          "connectivity_test_timeout": 10.0
+        },
+        {
+          "type": "vllm",
+          "host": "127.0.0.1",
+          "port": 8000,
+          "model": "vllm/qwen3-30b-a3b-thinking-2507-awq-4bit",
+          "timeout": 60,
+          "max_tokens": 500,
+          "max_concurrent": 5,
+          "connectivity_test_timeout": 5.0
+        },
+        {
+          "type": "truncation",
+          "max_tokens": 500
+        }
+      ]
+    }
+  },
+  "default_quality": "high"
+}
+

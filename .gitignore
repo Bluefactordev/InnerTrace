@@ -20,6 +20,9 @@ blobs/
 *.env
 !*.env.example
 
+# Configuration files (may contain sensitive URLs/IPs)
+innertrace/tracing/config.json
+
 # IDE
 .vscode/
 .idea/

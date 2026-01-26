@@ -6,6 +6,36 @@
 
 Structured tracing system for LLM orchestration with causal graph, deterministic projections, and **semantic storytelling layer**.
 
+## Quick Start
+
+InnerTrace is a Python package for tracing LLM orchestration. Install it in your project:
+
+```bash
+pip install -e .
+```
+
+Then integrate it into your application:
+
+```python
+from innertrace import get_tracer
+
+tracer = get_tracer()
+run_id = tracer.start_run(entrypoint="api.chat", args={"query": "Hello"})
+# ... your LLM orchestration code ...
+tracer.end_run(status="ok")
+```
+
+View traces using the CLI:
+
+```bash
+./trace ls-runs
+./trace timeline --last
+```
+
+For web integration, use the provided templates in `templates/` directory and expose the projections via your web framework.
+
+---
+
 ## Overview
 
 This is a **systems observability project** focused on:
@@ -275,7 +305,156 @@ storytelling_json = extractor.load_storytelling("conv-123")
 # Returns identical format as before (backward compatible)
 ```
 
-### 8. Using Integration Helpers
+### 8. Function-Level Tracing
+
+InnerTrace provides **declarative function-level tracing** without global hooks or monkey patching. This allows you to instrument individual functions or entire modules with automatic tracing of arguments, return values, and exceptions.
+
+#### Decorator: `@trace_function`
+
+Trace individual functions with full control over what's captured:
+
+```python
+from innertrace import trace_function, get_tracer
+
+tracer = get_tracer()
+
+@trace_function(capture_args=True, capture_return=False)
+def process_document(doc_id: str, options: dict):
+    """Process a document with automatic tracing."""
+    # Your logic here
+    return {"status": "processed", "doc_id": doc_id}
+
+@trace_function(name="custom_name", capture_return=True)
+async def async_process(data):
+    """Async functions are automatically detected."""
+    result = await external_api_call(data)
+    return result
+
+# Use within a traced run
+run_id = tracer.start_run(entrypoint="api.process", args={})
+result = process_document("doc-123", {"validate": True})
+tracer.end_run(status="ok")
+```
+
+**Parameters:**
+- `name`: Custom span name (default: `module.qualname`)
+- `capture_args`: Capture function arguments (default: `True`)
+- `capture_return`: Capture return value (default: `False`)
+- `redact`: Additional keys to redact beyond standard secrets
+- `max_repr`: Maximum length for repr() of objects (default: 500)
+- `max_items`: Maximum items in lists/dicts (default: 50)
+
+**Features:**
+- ✅ Works with both sync (`def`) and async (`async def`) functions
+- ✅ Automatic argument serialization with size limits
+- ✅ Secret redaction (passwords, API keys, tokens)
+- ✅ Exception tracking (logged and re-raised, never suppressed)
+- ✅ Hierarchical span tracking (nested function calls)
+- ✅ No tracing overhead when not in a run
+
+#### Module Provider: `trace_module()`
+
+Instrument **all functions in a module** with a single call:
+
+```python
+from innertrace import trace_module
+
+def public_function():
+    """This will be traced."""
+    pass
+
+def _private_function():
+    """This will NOT be traced (unless include_private=True)."""
+    pass
+
+def special_handler():
+    """This will be traced."""
+    pass
+
+# At end of file - instrument all public functions
+trace_module(globals(), include_private=False)
+
+# With custom configuration
+trace_module(
+    globals(),
+    include_private=True,          # Include private functions (starting with _)
+    exclude=["special_*"],         # Exclude patterns (fnmatch)
+    redact=["custom_secret"],      # Additional redaction keys
+    name_prefix="mymodule"         # Prefix for span names
+)
+```
+
+**Note:** Only functions **defined in the current module** are wrapped. Imported functions are automatically skipped.
+
+#### Context Manager: `trace_block()`
+
+Trace arbitrary code blocks with custom metadata:
+
+```python
+from innertrace import trace_block
+
+# Synchronous context
+with trace_block("data_processing", payload={"records": 100}):
+    process_records()
+
+# Asynchronous context
+from innertrace import trace_block_async
+
+async with trace_block_async("async_operation", payload={"items": 50}):
+    await process_async()
+```
+
+#### Viewing Function Traces
+
+**Full timeline** (default - includes function calls):
+```bash
+./trace timeline <run_id>
+# Shows:
+# [12:34:56.789]   span.start               [function] process_document
+# [12:34:56.791]     llm.call.start         (gpt-4, reasoning)
+# [12:34:56.899]     llm.call.end           (200 tokens, 108ms)
+# [12:34:56.900]   span.end                 (ok, 111ms total)
+```
+
+**Compact view** (excludes function calls for quick overview):
+```bash
+./trace timeline --compact <run_id>
+# Shows only LLM calls, run boundaries (no function-level spans)
+```
+
+**Verbose view** (shows function arguments in payload):
+```bash
+./trace timeline --verbose <run_id>
+# Includes redacted function arguments and metadata
+```
+
+#### Event Structure
+
+Function tracing emits standard `span.start` and `span.end` events with `kind="function"`:
+
+**span.start payload:**
+```json
+{
+  "name": "module.function_name",
+  "kind": "function",
+  "func": "module.submodule.FunctionName",
+  "args": [10, 20],
+  "kwargs": {"option": "value"}
+}
+```
+
+**span.end payload:**
+```json
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "return": "result_value"  // only if capture_return=True
+}
+```
+
+**No Breaking Changes:** Function tracing uses existing event types and is fully compatible with all projections and views.
+
+### 9. Using Integration Helpers
 
 The `integration.py` module provides convenience wrappers:
 

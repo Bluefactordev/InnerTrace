@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InnerTrace - Runs List</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px 0;
+            border-radius: 0 0 10px 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: white;
+            font-size: 28px;
+            margin: 0;
+        }
+        
+        .subtitle {
+            color: rgba(255,255,255,0.8);
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .nav-tab {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-decoration: none;
+            transition: all 0.3s;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .nav-tab:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+        
+        .nav-tab.active {
+            background: white;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .toolbar {
+            background: #2d2d3a;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .toolbar-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .toolbar-label {
+            color: #a0a0a0;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        select, input {
+            background: #363642;
+            color: #e0e0e0;
+            border: 1px solid #3d3d3d;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: #4a5568;
+        }
+        
+        .btn-secondary:hover {
+            background: #6366f1;
+        }
+        
+        .runs-table {
+            background: #2d2d3a;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .table-header {
+            background: #363642;
+            padding: 15px;
+            font-weight: 600;
+            border-bottom: 2px solid #3d3d3d;
+        }
+        
+        .table-row {
+            padding: 15px;
+            border-bottom: 1px solid #3d3d3d;
+            transition: background 0.2s;
+        }
+        
+        .table-row:hover {
+            background: #3d3d3d;
+        }
+        
+        .table-row:last-child {
+            border-bottom: none;
+        }
+        
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-ok {
+            background: #10b981;
+            color: white;
+        }
+        
+        .status-error {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .status-running {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .entrypoint-tag {
+            background: #363642;
+            color: #a0a0a0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .duration {
+            color: #a0a0a0;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .timestamp {
+            color: #a0a0a0;
+            font-size: 12px;
+        }
+        
+        .run-id {
+            color: #667eea;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .btn-view {
+            background: #10b981;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-view:hover {
+            background: #059669;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #a0a0a0;
+        }
+        
+        .spinner {
+            border: 3px solid #667eea;
+            border-left-color: transparent;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #a0a0a0;
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        .error {
+            background: #3d1f2d;
+            border: 1px solid #ef4444;
+            color: #f87171;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 InnerTrace - Runs</h1>
+            <p class="subtitle">Browse and analyze traced runs</p>
+            <nav class="nav-tabs">
+                <a href="/innertrace" class="nav-tab">Dashboard</a>
+                <a href="/innertrace/timeline" class="nav-tab">Timeline</a>
+                <a href="/innertrace/runs" class="nav-tab active">Runs</a>
+            </nav>
+        </header>
+        
+        <div class="toolbar">
+            <div class="toolbar-group">
+                <label class="toolbar-label">Filter by Status:</label>
+                <select id="statusFilter">
+                    <option value="">All</option>
+                    <option value="ok">Successful</option>
+                    <option value="error">Errors</option>
+                </select>
+            </div>
+            
+            <div class="toolbar-group">
+                <label class="toolbar-label">Filter by Entrypoint:</label>
+                <select id="entrypointFilter">
+                    <option value="">All</option>
+                    <option value="api.chat_v2">api.chat_v2</option>
+                </select>
+            </div>
+            
+            <div class="toolbar-group">
+                <button class="btn" onclick="loadRuns()">Refresh</button>
+                <button class="btn btn-secondary" onclick="viewLastRun()">View Last Run</button>
+            </div>
+        </div>
+        
+        <div class="runs-table">
+            <div class="table-header">
+                <div style="flex: 1;">Run ID</div>
+                <div style="flex: 1;">Entrypoint</div>
+                <div style="flex: 0.5;">Status</div>
+                <div style="flex: 0.5;">Duration</div>
+                <div style="flex: 1;">Started</div>
+                <div style="flex: 0.5;"></div>
+            </div>
+            <div id="runsContent">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading runs...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentRuns = [];
+        
+        // Load runs on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadRuns();
+        });
+        
+        async function loadRuns() {
+            const statusFilter = document.getElementById('statusFilter').value;
+            const entrypointFilter = document.getElementById('entrypointFilter').value;
+            
+            const content = document.getElementById('runsContent');
+            content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading runs...</p></div>';
+            
+            try {
+                const response = await fetch('/api/innertrace/runs');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    currentRuns = data.data;
+                    
+                    // Apply filters
+                    let filteredRuns = currentRuns;
+                    if (statusFilter) {
+                        filteredRuns = filteredRuns.filter(r => r.status === statusFilter);
+                    }
+                    if (entrypointFilter) {
+                        filteredRuns = filteredRuns.filter(r => r.entrypoint === entrypointFilter);
+                    }
+                    
+                    renderRuns(filteredRuns);
+                } else {
+                    content.innerHTML = `<div class="error">Error: ${data.message}</div>`;
+                }
+            } catch (error) {
+                content.innerHTML = `<div class="error">Failed to load runs: ${error.message}</div>`;
+            }
+        }
+        
+        function renderRuns(runs) {
+            const content = document.getElementById('runsContent');
+            
+            if (runs.length === 0) {
+                content.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>No runs found matching your filters</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const rows = runs.map(run => {
+                const statusClass = run.status === 'ok' ? 'status-ok' : 
+                                  run.status === 'error' ? 'status-error' : 'status-running';
+                const statusText = run.status === 'ok' ? '✓ OK' : 
+                                  run.status === 'error' ? '✗ Error' : '⏳ Running';
+                
+                return `
+                    <div class="table-row">
+                        <div class="run-id">${run.run_id.substring(0, 20)}...</div>
+                        <div><span class="entrypoint-tag">${run.entrypoint || 'unknown'}</span></div>
+                        <div><span class="status-badge ${statusClass}">${statusText}</span></div>
+                        <div class="duration">${run.duration || '-'}</div>
+                        <div class="timestamp">${run.start_formatted || '-'}</div>
+                        <div>
+                            <button class="btn-view" onclick="viewRun('${run.run_id}')">View Timeline</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            content.innerHTML = `
+                <div class="table-header">
+                    <div style="flex: 1;">Run ID</div>
+                    <div style="flex: 1;">Entrypoint</div>
+                    <div style="flex: 0.5;">Status</div>
+                    <div style="flex: 0.5;">Duration</div>
+                    <div style="flex: 1;">Started</div>
+                    <div style="flex: 0.5;"></div>
+                </div>
+                ${rows}
+            `;
+        }
+        
+        async function viewRun(runId) {
+            window.location.href = `/innertrace/timeline?run=${runId}`;
+        }
+        
+        async function viewLastRun() {
+            try {
+                const response = await fetch('/api/innertrace/last-run');
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.data) {
+                    window.location.href = `/innertrace/timeline?run=${data.data.run_id}`;
+                } else {
+                    alert('No runs found');
+                }
+            } catch (error) {
+                alert('Failed to load last run: ' + error.message);
+            }
+        }
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadRuns, 30000);
+    </script>
+</body>
+</html>

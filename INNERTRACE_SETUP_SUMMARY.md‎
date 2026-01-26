@@ -1,0 +1,84 @@
+# InnerTrace Repository - Setup Summary
+
+## Descrizione
+
+InnerTrace v0.2 è un sistema di tracing event-sourcing per l'orchestrazione LLM, organizzato come repository separato nella cartella `external/innertrace/`.
+
+## Architettura
+
+### Struttura Directory
+
+```
+external/innertrace/
+├── __init__.py
+├── innertrace/
+│   ├── __init__.py
+│   └── tracing/
+│       ├── __init__.py
+│       ├── INTEGRATION_GUIDE.md
+│       ├── QUICKSTART.md
+│       ├── README.md
+│       ├── blob_store.py
+│       ├── cli.py
+│       ├── config.json
+│       ├── env.example
+│       ├── example.py
+│       ├── integration.py
+│       ├── projections.py
+│       ├── redact.py
+│       ├── synthesis.py
+│       ├── trace.py
+│       └── tracer.py
+└── docs/                         # Documentazione
+```
+
+### Package Python
+
+La struttura è organizzata come package Python `innertrace.tracing` per facilitare l'importazione:
+
+```python
+from innertrace.tracing.projections import list_runs, timeline_view
+from innertrace.tracing.blob_store import BlobStore
+```
+
+## Integrazione con il Progetto Principale
+
+Il repository è integrato nel progetto principale attraverso:
+
+**Route**: `routes/innertrace_routes.py`
+- Importa da `innertrace.tracing.projections`
+- Importa da `innertrace.tracing.blob_store`
+- Fornisce API REST per accesso ai trace
+
+**Endpoints disponibili**:
+- `/innertrace` - Dashboard principale
+- `/api/innertrace/runs` - Lista esecuzioni
+- `/api/innertrace/timeline/<run_id>` - Timeline dettagliata
+- `/api/innertrace/stats` - Statistiche aggregate
+
+## Caratteristiche Principali
+
+- 📊 **Event-Sourcing**: Log append-only con eventi immutabili
+- 🔗 **Blob Store**: Archiviazione content-addressable
+- 📈 **Projections**: Timeline view e filtri avanzati
+- 🎯 **Semantic Layer**: Storytelling ad alto livello
+- ⚡ **Performance**: Cache con refresh automatico
+
+## Note Importanti
+
+1. La directory `external/` è in `.gitignore` del repository principale
+2. Il repository innerTrace è **separato e indipendente**
+3. Questo permette di versionare InnerTrace separatamente dal progetto principale
+4. Gli aggiornamenti a InnerTrace non influenzano il repository principale
+
+## Setup e Configurazione
+
+Per i comandi Git completi per configurare e fare push del repository, consulta:
+
+📄 **`INNERTRACE_GIT_COMMANDS.md`** - Guida completa con tutti i comandi necessari
+
+---
+
+**Versione**: InnerTrace v0.2  
+**Tipo**: Repository Git separato  
+**Posizione**: `external/innertrace/`

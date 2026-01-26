@@ -12,7 +12,10 @@ from typing import Any, Dict, List, Optional
 from .synthesis import SynthesisProvider, TruncationProvider
 
 # Configurazione sintesi
-MAX_SYNTHESIS_WORDS = 50  # Numero massimo di parole per le sintesi
+# MAX_SYNTHESIS_WORDS calcolato basandosi su max_tokens=500
+# 500 token ≈ 375 parole (rapporto ~1.33 token/parola)
+# Usiamo 400 parole per essere generosi e permettere sintesi complete
+MAX_SYNTHESIS_WORDS = 400  # Allineato con max_tokens=500 (circa 375 parole, arrotondato a 400)
 
 # Whitelist of parameters to include in run.start signature
 # These are safe to display and useful for debugging
@@ -41,6 +44,35 @@ RUN_SIGNATURE_KEYS = {
         "client",  # Client identifier
     ]
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FILOSOFIA INNERTRACE v0.2
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# InnerTrace NON decide, NON rassicura, NON giudica di default
+# InnerTrace registra, struttura, rende leggibile
+#
+# COSA VA NEL CORE:
+# ✓ Sintesi neutra delle risposte (sempre utile, sempre stabile)
+# ✓ Strutturazione semantica del trace
+# ✓ Informazioni che rendono leggibile cosa è successo
+#
+# COSA NON VA NEL CORE:
+# ✗ Valutazioni di adeguatezza (advanced/stalled/regressed)
+# ✗ Giudizi su topic alignment o intent progress
+# ✗ Euristiche naive (keyword matching, conteggi grezzi)
+# ✗ Segnali che inquinano il trace con falsi positivi
+#
+# Le valutazioni (se necessarie) vanno in:
+# - Projection layer opzionale
+# - Attivabile tramite flag espliciti
+# - Chiaramente separate dalla verità primaria del trace
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# Sintesi neutre generate in batch più avanti nel codice
 
 
 def load_events(events_path: str = "traces/events.jsonl", run_id: Optional[str] = None) -> List[Dict]:
@@ -582,10 +614,11 @@ def format_run_signature(sig: Dict[str, Any], max_length: int = 250) -> str:
 def find_last_run(
     events_path: str = "traces/events.jsonl",
     status: Optional[str] = None,
-    entrypoint: Optional[str] = None
+    entrypoint: Optional[str] = None,
+    offset: int = 0
 ) -> Optional[str]:
     """
-    Find the most recent run ID matching optional filters.
+    Find the n-th most recent run ID matching optional filters.
     
     Includes both completed runs (with run.end) and running runs (only run.start).
 
@@ -595,9 +628,10 @@ def find_last_run(
                 If None, includes both completed and running runs.
                 If specified, only matches completed runs with that status.
         entrypoint: Optional entrypoint filter (e.g., "api.chat_v2")
+        offset: Offset from most recent (0 = most recent, 1 = penultimate, etc.)
 
     Returns:
-        Run ID of the most recent matching run, or None if not found
+        Run ID of the n-th most recent matching run, or None if not found
     """
     events = load_events(events_path)
 
@@ -650,9 +684,11 @@ def find_last_run(
     if not filtered_runs:
         return None
 
-    # Sort by timestamp (most recent first) and return the first
+    # Sort by timestamp (most recent first) and return the run at offset
     filtered_runs.sort(key=lambda x: x[1], reverse=True)
-    return filtered_runs[0][0]
+    if offset < len(filtered_runs):
+        return filtered_runs[offset][0]
+    return None
 
 
 # batch_synthesize_extracts() removed - replaced by synthesis.py providers
@@ -715,6 +751,7 @@ def timeline_view(
     compact: bool = False,
     synthesize: bool = False,
     synthesis_provider: Optional[SynthesisProvider] = None,
+    verbose: bool = False,
 ) -> List[str]:
     """
     Canonical timeline view with complete span hierarchy and delta times.
@@ -748,6 +785,13 @@ def timeline_view(
 
     logging.debug(f"[TIMELINE_VIEW] synthesis_provider: {synthesis_provider}, synthesize={synthesize}")
     logging.info(f"[TIMELINE_VIEW] synthesis_provider: {synthesis_provider}, synthesize={synthesize}")
+
+    # Accumula messaggi di fallback se verbose=True
+    fallback_messages = []
+    if verbose and hasattr(synthesis_provider, 'verbose'):
+        synthesis_provider.verbose = verbose
+    if verbose and hasattr(synthesis_provider, 'fallback_callback'):
+        synthesis_provider.fallback_callback = lambda msg: fallback_messages.append(msg)
 
     events = load_events(events_path, run_id=run_id)
     logging.debug(f"[TIMELINE_VIEW] Caricati {len(events)} eventi")
@@ -808,22 +852,44 @@ def timeline_view(
             # Extract prompt_ref for synthesis (component name resolved in second pass)
             prompt_ref = payload.get("prompt_ref")
             if prompt_ref:
-                if span_id not in llm_call_data:
-                    llm_call_data[span_id] = {}
-                llm_call_data[span_id]["prompt_ref"] = prompt_ref
-                llm_call_data[span_id]["parent_span_id"] = parent_span_id
-                llm_call_data[span_id]["span_id"] = span_id  # Salva span_id per matching univoco
+                # 🔧 FIX: Usa timestamp come chiave se span_id è None (per matching quando non c'è span hierarchy)
+                key = span_id if span_id else f"ts_{event.get('ts')}"
+                if key not in llm_call_data:
+                    llm_call_data[key] = {}
+                llm_call_data[key]["prompt_ref"] = prompt_ref
+                llm_call_data[key]["parent_span_id"] = parent_span_id
+                llm_call_data[key]["span_id"] = span_id  # Salva span_id per matching univoco
+                llm_call_data[key]["ts"] = event.get("ts")  # Salva timestamp per matching quando span_id è None
         
         elif event_type == "llm.call.end":
             # Extract response_ref for synthesis
             response_ref = payload.get("response_ref")
             if response_ref:
-                if span_id not in llm_call_data:
-                    llm_call_data[span_id] = {}
-                llm_call_data[span_id]["response_ref"] = response_ref
-                if "parent_span_id" not in llm_call_data[span_id]:
-                    llm_call_data[span_id]["parent_span_id"] = parent_span_id
-                llm_call_data[span_id]["span_id"] = span_id  # Salva span_id per matching univoco
+                # 🔧 FIX: Usa timestamp come chiave se span_id è None (per matching quando non c'è span hierarchy)
+                # Cerca prima se esiste già una entry per questo span_id o timestamp
+                key = span_id if span_id else f"ts_{event.get('ts')}"
+                # Se span_id è None, cerca la entry più vicina per timestamp
+                if not span_id:
+                    # Cerca la entry più vicina per timestamp (entro 1 secondo)
+                    closest_key = None
+                    closest_ts_diff = float('inf')
+                    for k, data in llm_call_data.items():
+                        if k.startswith("ts_") and "ts" in data:
+                            ts_diff = abs(data["ts"] - event.get("ts", 0))
+                            if ts_diff < closest_ts_diff and ts_diff < 1.0:  # Entro 1 secondo
+                                closest_ts_diff = ts_diff
+                                closest_key = k
+                    if closest_key:
+                        key = closest_key
+                
+                if key not in llm_call_data:
+                    llm_call_data[key] = {}
+                llm_call_data[key]["response_ref"] = response_ref
+                if "parent_span_id" not in llm_call_data[key]:
+                    llm_call_data[key]["parent_span_id"] = parent_span_id
+                llm_call_data[key]["span_id"] = span_id  # Salva span_id per matching univoco
+                if "ts" not in llm_call_data[key]:
+                    llm_call_data[key]["ts"] = event.get("ts")  # Salva timestamp per matching quando span_id è None
     
     # Load extracts from blob store if synthesis is enabled (second pass: resolve component names)
     if synthesize:
@@ -838,7 +904,9 @@ def timeline_view(
             blob_store_path = "traces/blobs"
         blob_store = BlobStore(blob_store_path)
         
-        for span_id, data in llm_call_data.items():
+        for key, data in llm_call_data.items():
+            # 🔧 FIX: Estrai span_id dalla data (può essere None)
+            span_id = data.get("span_id")
             # Resolve component name from parent span
             parent_span_id = data.get("parent_span_id")
             component_name = "unknown"
@@ -846,17 +914,17 @@ def timeline_view(
                 component_name = span_info[parent_span_id].get("name", "unknown")
             else:
                 # Try to get from span itself if it's an agent span
-                if span_id in span_info:
+                if span_id and span_id in span_info:
                     span_kind = span_info[span_id].get("kind")
                     if span_kind == "agent":
                         component_name = span_info[span_id].get("name", "unknown")
             
             prompt_ref = data.get("prompt_ref")
             response_ref = data.get("response_ref")
-            
+
             if component_name not in storytelling_extracts:
                 storytelling_extracts[component_name] = []
-            
+
             extract = {}
             try:
                 if prompt_ref:
@@ -864,18 +932,24 @@ def timeline_view(
                     extract["prompt"] = prompt_content
             except Exception as e:
                 logging.debug(f"Could not load prompt from {prompt_ref}: {e}")
-            
+
             try:
                 if response_ref:
                     response_content = blob_store.get(response_ref)
                     extract["response"] = response_content
+                else:
+                    # Debug: response_ref è None
+                    logging.warning(f"[EXTRACT] No response_ref for component={component_name}, span_id={span_id}")
+                    print(f"Debug: No response_ref for {component_name} span={span_id}", file=sys.stderr)
             except Exception as e:
-                logging.debug(f"Could not load response from {response_ref}: {e}")
+                logging.warning(f"[EXTRACT] Could not load response from {response_ref}: {e}")
+                print(f"Debug: Failed to load response from {response_ref}: {e}", file=sys.stderr)
             
             if extract:
-                # 🔧 FIX: Salva span_id e parent_span_id per matching univoco nel timeline
+                # 🔧 FIX: Salva span_id, parent_span_id e timestamp per matching univoco nel timeline
                 extract["span_id"] = span_id
                 extract["parent_span_id"] = parent_span_id
+                extract["ts"] = data.get("ts")  # Salva timestamp per matching quando span_id è None
                 storytelling_extracts[component_name].append(extract)
                 # Debug: log se prompt/response sono vuoti
                 if extract.get("prompt") and len(extract["prompt"]) == 0:
@@ -887,60 +961,178 @@ def timeline_view(
     logging.debug(f"[TIMELINE_VIEW] synthesize={synthesize}, storytelling_extracts={len(storytelling_extracts) if storytelling_extracts else 0} componenti")
     logging.info(f"[TIMELINE_VIEW] synthesize={synthesize}, storytelling_extracts={len(storytelling_extracts) if storytelling_extracts else 0} componenti")
 
-    synthesized_map = {} # (component, idx, type) -> summary
+    # 🎯 v0.3: Sintesi separate di prompt e response + salvataggio file completi
+    # Mappa: (component, idx) -> {"prompt_summary": str, "response_summary": str, "prompt_file": str, "response_file": str}
+    prompt_response_summaries = {}
+
     if synthesize:
         if not storytelling_extracts:
             print(f"Warning: No extracts found to synthesize. synthesis_provider={synthesis_provider}", file=sys.stderr)
         elif synthesis_provider is None:
             print(f"Warning: synthesis_provider is None. Cannot synthesize extracts.", file=sys.stderr)
         else:
-            print(f"Info: Found {len(storytelling_extracts)} components with extracts. Starting synthesis...", file=sys.stderr)
-            logging.debug(f"[TIMELINE_VIEW] Avvio sintesi per {len(storytelling_extracts)} componenti")
-            to_synthesize = []
-            keys = []
+            print(f"Info: Found {len(storytelling_extracts)} components with extracts. Generating prompt and response summaries...", file=sys.stderr)
+            logging.debug(f"[TIMELINE_VIEW] Generazione sintesi separate per {len(storytelling_extracts)} componenti")
+
+            # Crea directory per salvare file completi (organizzati per run_id)
+            events_dir = Path(events_path).parent if events_path else Path("traces")
+            prompts_dir = events_dir / "prompts" / run_id
+            prompts_dir.mkdir(parents=True, exist_ok=True)
+
+            # Prepara batch separati per sintesi prompt e response
+            prompts_to_synthesize = []
+            responses_to_synthesize = []
+            synthesis_keys = []  # (component, idx) per ogni coppia
+
+            # Debug: conta distribuzione prompt/response
+            debug_stats = {"total": 0, "has_prompt": 0, "has_response": 0, "has_both": 0}
+
             for component, calls in storytelling_extracts.items():
                 for idx, call in enumerate(calls):
-                    if call.get("prompt"):
-                        to_synthesize.append(call["prompt"])
-                        keys.append((component, idx, "prompt"))
-                    if call.get("response"):
-                        to_synthesize.append(call["response"])
-                        keys.append((component, idx, "response"))
+                    prompt = call.get("prompt", "")
+                    response = call.get("response", "")
 
-            logging.debug(f"[TIMELINE_VIEW] Trovati {len(to_synthesize)} testi da sintetizzare")
-            if to_synthesize:
-                print(f"Info: Synthesizing {len(to_synthesize)} texts using {type(synthesis_provider).__name__}...", file=sys.stderr)
-            try:
-                # Use synthesis provider for summarization
-                logging.debug(f"[SYNTHESIS] synthesis_provider: {synthesis_provider}")
-                logging.debug(f"[SYNTHESIS] Testi da sintetizzare: {len(to_synthesize)}")
+                    debug_stats["total"] += 1
+                    if prompt:
+                        debug_stats["has_prompt"] += 1
+                    if response:
+                        debug_stats["has_response"] += 1
 
-                # Call synthesis provider
-                summaries = asyncio.run(synthesis_provider.synthesize_batch(to_synthesize, max_words=MAX_SYNTHESIS_WORDS))
-                print(f"Info: Synthesis completed: {len(summaries)} summaries generated", file=sys.stderr)
-                logging.debug(f"[SYNTHESIS] Sintesi completate: {len(summaries)}")
-                for key, summary in zip(keys, summaries):
-                    # Debug: verifica se la sintesi è vuota o solo truncation
-                    original_idx = keys.index(key)
-                    original_text = to_synthesize[original_idx]
-                    if len(summary) <= 100 and summary == original_text[:100]:
-                        logging.warning(f"[SYNTHESIS] Sintesi per {key} sembra essere solo truncation (len={len(summary)})")
-                    synthesized_map[key] = summary
-                    # Debug: mostra primo esempio
-                    if key[2] == "prompt" and key[1] == 0:
-                        logging.debug(f"[SYNTHESIS DEBUG] Esempio sintesi prompt: originale={len(original_text)} chars, sintesi={len(summary)} chars")
-                        logging.debug(f"[SYNTHESIS DEBUG] Sintesi: {summary[:200]}")
-                        print(f"Debug: Primo esempio sintesi - originale={len(original_text)} chars, sintesi={len(summary)} chars, content={summary[:100]}...", file=sys.stderr)
-            except Exception as e:
-                # Show error to user
-                print(f"Error: Synthesis failed: {type(e).__name__}: {str(e)}", file=sys.stderr)
-                logging.warning(f"[SYNTHESIS] Errore: {type(e).__name__}: {str(e)}")
-                logging.warning(f"Synthesis failed: {e}")
-                import traceback
-                logging.debug(traceback.format_exc())
-                pass
+                    if prompt and response:
+                        debug_stats["has_both"] += 1
+                        
+                        # Salva file completi
+                        # Nome file: {component}_{idx}_prompt.txt e {component}_{idx}_response.txt
+                        safe_component = component.replace("/", "_").replace("\\", "_")
+                        prompt_filename = f"{safe_component}_{idx}_prompt.txt"
+                        response_filename = f"{safe_component}_{idx}_response.txt"
+                        prompt_file_path = prompts_dir / prompt_filename
+                        response_file_path = prompts_dir / response_filename
+                        
+                        # Salva file completi
+                        try:
+                            prompt_file_path.write_text(prompt, encoding='utf-8')
+                            response_file_path.write_text(response, encoding='utf-8')
+                        except Exception as e:
+                            logging.warning(f"[TIMELINE_VIEW] Errore salvataggio file per {component} #{idx+1}: {e}")
+                        
+                        # Path relativo per visualizzazione nella timeline (rispetto alla directory di lavoro corrente)
+                        # Se events_path è "traces/events.jsonl", prompts_dir sarà "traces/prompts/{run_id}"
+                        # Il percorso relativo deve essere "traces/prompts/{run_id}/{filename}" per essere accessibile
+                        events_path_str = str(events_path) if events_path else "traces/events.jsonl"
+                        if "traces" in events_path_str:
+                            prompt_file_rel = f"traces/prompts/{run_id}/{prompt_filename}"
+                            response_file_rel = f"traces/prompts/{run_id}/{response_filename}"
+                        else:
+                            # Fallback: usa percorso relativo alla directory di events_path
+                            prompts_dir_rel = prompts_dir.relative_to(Path.cwd()) if prompts_dir.is_relative_to(Path.cwd()) else prompts_dir
+                            prompt_file_rel = f"{prompts_dir_rel}/{prompt_filename}"
+                            response_file_rel = f"{prompts_dir_rel}/{response_filename}"
+                        
+                        # Prepara testi per sintesi (limita lunghezza per efficienza)
+                        # 2000 caratteri ≈ 500 token di input, sufficiente per generare sintesi complete
+                        prompt_text = prompt[:2000] if len(prompt) > 2000 else prompt
+                        response_text = response[:2000] if len(response) > 2000 else response
+                        
+                        # Sintesi prompt: focus sull'intento
+                        prompt_synthesis_text = f"Summarize the INTENT and PURPOSE of this prompt in maximum {MAX_SYNTHESIS_WORDS} words. Focus on what the user/system is asking for:\n\n{prompt_text}"
+                        
+                        # Sintesi response: focus su come soddisfa l'intento
+                        response_synthesis_text = f"Summarize this response focusing on how it addresses and satisfies the intent. Maximum {MAX_SYNTHESIS_WORDS} words. Focus on the relevant parts that fulfill the request:\n\n{response_text}"
+                        
+                        prompts_to_synthesize.append(prompt_synthesis_text)
+                        responses_to_synthesize.append(response_synthesis_text)
+                        synthesis_keys.append((component, idx, prompt_file_rel, response_file_rel))
+
+            # Debug output
+            print(f"Debug: Extracts stats - total={debug_stats['total']}, has_prompt={debug_stats['has_prompt']}, has_response={debug_stats['has_response']}, has_both={debug_stats['has_both']}", file=sys.stderr)
+
+            total_pairs = len(synthesis_keys)
+            if total_pairs > 0:
+                print(f"Info: Generating {total_pairs} prompt summaries and {total_pairs} response summaries...", file=sys.stderr)
+                try:
+                    # Batch synthesis async per prompt e response in parallelo
+                    prompt_summaries = asyncio.run(synthesis_provider.synthesize_batch(prompts_to_synthesize, max_words=MAX_SYNTHESIS_WORDS))
+                    response_summaries = asyncio.run(synthesis_provider.synthesize_batch(responses_to_synthesize, max_words=MAX_SYNTHESIS_WORDS))
+
+                    # 🔧 DEBUG: Mappa risultati e logga fallimenti
+                    successful = 0
+                    failed = 0
+                    empty = 0
+                    for key_data, prompt_summary, response_summary in zip(synthesis_keys, prompt_summaries, response_summaries):
+                        component, idx, prompt_file_rel, response_file_rel = key_data
+                        key = (component, idx)
+                        
+                        # 🔧 [FIX_INNERTRACE] Log sintesi ricevute
+                        prompt_summary_raw_len = len(prompt_summary) if prompt_summary else 0
+                        response_summary_raw_len = len(response_summary) if response_summary else 0
+                        logging.debug(f"[FIX_INNERTRACE] sintesi ricevuta - key={key}, prompt_raw_len={prompt_summary_raw_len}, response_raw_len={response_summary_raw_len}, prompt_is_none={prompt_summary is None}, response_is_none={response_summary is None}")
+                        
+                        prompt_summary_clean = prompt_summary.strip() if prompt_summary and len(prompt_summary.strip()) > 0 else None
+                        response_summary_clean = response_summary.strip() if response_summary and len(response_summary.strip()) > 0 else None
+                        
+                        # 🔧 [FIX_INNERTRACE] Log sintesi dopo pulizia
+                        prompt_summary_clean_len = len(prompt_summary_clean) if prompt_summary_clean else 0
+                        response_summary_clean_len = len(response_summary_clean) if response_summary_clean else 0
+                        logging.debug(f"[FIX_INNERTRACE] sintesi dopo clean - key={key}, prompt_clean_len={prompt_summary_clean_len}, response_clean_len={response_summary_clean_len}, prompt_clean_is_none={prompt_summary_clean is None}, response_clean_is_none={response_summary_clean is None}")
+                        
+                        if prompt_summary_clean and response_summary_clean:
+                            prompt_response_summaries[key] = {
+                                "prompt_summary": prompt_summary_clean,
+                                "response_summary": response_summary_clean,
+                                "prompt_file": prompt_file_rel,
+                                "response_file": response_file_rel
+                            }
+                            successful += 1
+                            # 🔧 [FIX_INNERTRACE] Log salvataggio riuscito
+                            logging.debug(f"[FIX_INNERTRACE] sintesi salvata SUCCESS - key={key}, prompt_len={prompt_summary_clean_len}, response_len={response_summary_clean_len}")
+                        else:
+                            failed += 1
+                            if not prompt_summary_clean:
+                                print(f"Warning: Prompt synthesis failed for {component} #{idx+1} (summary is None or empty)", file=sys.stderr)
+                                logging.warning(f"[PROMPT_SUMMARY] Failed for {component} #{idx+1}: summary is None or empty")
+                                logging.debug(f"[FIX_INNERTRACE] prompt_summary FAILED - key={key}, prompt_summary_raw='{prompt_summary[:100] if prompt_summary else None}'")
+                            if not response_summary_clean:
+                                print(f"Warning: Response synthesis failed for {component} #{idx+1} (summary is None or empty)", file=sys.stderr)
+                                logging.warning(f"[RESPONSE_SUMMARY] Failed for {component} #{idx+1}: summary is None or empty")
+                                logging.debug(f"[FIX_INNERTRACE] response_summary FAILED - key={key}, response_summary_raw='{response_summary[:100] if response_summary else None}'")
+                            
+                            # Anche se una sintesi fallisce, salva comunque i file e le sintesi disponibili
+                            prompt_summary_final = prompt_summary_clean or "[Synthesis failed]"
+                            response_summary_final = response_summary_clean or "[Synthesis failed]"
+                            prompt_response_summaries[key] = {
+                                "prompt_summary": prompt_summary_final,
+                                "response_summary": response_summary_final,
+                                "prompt_file": prompt_file_rel,
+                                "response_file": response_file_rel
+                            }
+                            # 🔧 [FIX_INNERTRACE] Log salvataggio con fallback
+                            logging.debug(f"[FIX_INNERTRACE] sintesi salvata FALLBACK - key={key}, prompt_final='{prompt_summary_final[:50]}...', response_final='{response_summary_final[:50]}...', prompt_len={len(prompt_summary_final)}, response_len={len(response_summary_final)}")
+
+                    print(f"Info: Synthesis results - successful={successful}, failed={failed}, empty={empty}, total={total_pairs}", file=sys.stderr)
+                    if failed > 0 or empty > 0:
+                        print(f"Warning: {failed + empty} out of {total_pairs} syntheses failed or returned empty.", file=sys.stderr)
+                    
+                    # 🔧 [FIX_INNERTRACE] Log finale statistiche sintesi salvate
+                    total_saved = len(prompt_response_summaries)
+                    logging.debug(f"[FIX_INNERTRACE] sintesi finali salvate - total_saved={total_saved}, expected={total_pairs}, successful={successful}, failed={failed}, empty={empty}")
+                    if total_saved < total_pairs:
+                        missing_keys = []
+                        for key_data in synthesis_keys:
+                            component, idx, _, _ = key_data
+                            key = (component, idx)
+                            if key not in prompt_response_summaries:
+                                missing_keys.append(key)
+                        logging.debug(f"[FIX_INNERTRACE] sintesi MANCANTI - missing_keys={missing_keys[:10]}")  # Primi 10 per non intasare
+                except Exception as e:
+                    print(f"Error: Summary generation failed: {type(e).__name__}: {str(e)}", file=sys.stderr)
+                    logging.warning(f"[SUMMARY] Batch failed: {e}", exc_info=True)
             else:
-                print(f"Info: Synthesis successful. Using synthesized summaries in timeline.", file=sys.stderr)
+                print(f"Warning: No prompt/response pairs found for synthesis.", file=sys.stderr)
+
+    # 🎯 v0.2: Valutazioni rimosse dal core
+    # InnerTrace registra, struttura, rende leggibile - NON giudica
+    # Le valutazioni (se necessarie) vanno in projection layer opzionale
 
     # Build index map: for each LLM call, assign its number within parent
     for parent_span_id, llm_call_span_ids in parent_llm_call_counts.items():
@@ -1039,6 +1231,13 @@ def timeline_view(
     # Format timeline
     logging.debug(f"[TIMELINE_VIEW] Generazione output timeline...")
     lines = []
+    
+    # Add synthesis fallback messages if verbose=True
+    if verbose and fallback_messages:
+        lines.append("# Synthesis Provider Fallback Log:")
+        for msg in fallback_messages:
+            lines.append(f"# {msg}")
+        lines.append("")
     
     # Add warning if no spans but LLM calls exist
     if not has_spans:
@@ -1144,37 +1343,62 @@ def timeline_view(
             details = f"({model}" + (f", {purpose}" if purpose else "") + f"){context_str}"
             
             # 🎭 Storytelling Extract: Show prompt snippet if available
-            if storytelling_extracts and component:
-                # 🔧 FIX: Match by span_id invece di idx per evitare mismatch
-                # Il problema: idx viene calcolato dalla posizione nella lista (tutte le chiamate allo stesso componente)
-                # ma call_number viene calcolato da parent_span_id (ogni parent ha la sua numerazione)
-                # Soluzione: usa span_id per matching univoco
-                node_calls = storytelling_extracts.get(component, [])
+            if storytelling_extracts:
+                # 🔧 FIX: Cerca in tutti i componenti, non solo quello trovato
+                # Il problema: component potrebbe essere None o "unknown" se non c'è span hierarchy
+                # Soluzione: cerca per span_id in tutti i componenti
                 matched_extract = None
+                matched_component = None
+                
+                # Prima cerca per span_id in tutti i componenti
                 if span_id:
-                    # Cerca per span_id
-                    for extract in node_calls:
-                        if extract.get("span_id") == span_id:
-                            matched_extract = extract
+                    for comp_name, node_calls in storytelling_extracts.items():
+                        for extract in node_calls:
+                            if extract.get("span_id") == span_id:
+                                matched_extract = extract
+                                matched_component = comp_name
+                                break
+                        if matched_extract:
                             break
+                else:
+                    # 🔧 FIX: Se span_id è None, cerca per timestamp (entro 1 secondo)
+                    event_ts = event.get("ts")
+                    if event_ts:
+                        closest_extract = None
+                        closest_ts_diff = float('inf')
+                        for comp_name, node_calls in storytelling_extracts.items():
+                            for extract in node_calls:
+                                extract_ts = extract.get("ts")
+                                if extract_ts:
+                                    ts_diff = abs(extract_ts - event_ts)
+                                    if ts_diff < closest_ts_diff and ts_diff < 1.0:  # Entro 1 secondo
+                                        closest_ts_diff = ts_diff
+                                        closest_extract = extract
+                                        matched_component = comp_name
+                        if closest_extract:
+                            matched_extract = closest_extract
                 
-                # Fallback: usa idx se span_id non matcha (per retrocompatibilità)
-                if not matched_extract:
-                    idx = int(call_number.strip().replace("#", "") or "1") - 1
-                    if 0 <= idx < len(node_calls):
-                        matched_extract = node_calls[idx]
+                # Fallback: se component è disponibile, cerca lì
+                if not matched_extract and component:
+                    node_calls = storytelling_extracts.get(component, [])
+                    if span_id:
+                        # Cerca per span_id
+                        for extract in node_calls:
+                            if extract.get("span_id") == span_id:
+                                matched_extract = extract
+                                matched_component = component
+                                break
+                    
+                    # Fallback: usa idx se span_id non matcha (per retrocompatibilità)
+                    if not matched_extract:
+                        idx = int(call_number.strip().replace("#", "") or "1") - 1
+                        if 0 <= idx < len(node_calls):
+                            matched_extract = node_calls[idx]
+                            matched_component = component
                 
-                if matched_extract:
-                    # Trova l'idx nella lista per accedere a synthesized_map
-                    extract_idx = node_calls.index(matched_extract) if matched_extract in node_calls else -1
-                    if extract_idx >= 0:
-                        synthesized = synthesized_map.get((component, extract_idx, "prompt"))
-                        if synthesized:
-                            details += f" | PROMPT (synth): {synthesized}"
-                        else:
-                            prompt_snippet = matched_extract.get("prompt", "")
-                            if prompt_snippet:
-                                details += f" | PROMPT: {prompt_snippet[:100].strip()}..."
+                # 🎯 v0.2: NON mostrare prompt raw - informazione disponibile in llm.call.end con sintesi neutra
+                # llm.call.start serve solo a segnare l'inizio, i dettagli vanno in llm.call.end
+                pass
             
         elif event_type == "llm.call.end":
             # Token and duration ONLY on llm.call.end (canonical location)
@@ -1238,36 +1462,159 @@ def timeline_view(
                 
                 # 🎭 Storytelling Extract: Show response snippet if available
                 if storytelling_extracts:
-                    # 🔧 FIX: Match by span_id invece di idx per evitare mismatch (stesso fix di sopra)
-                    node_calls = storytelling_extracts.get(component, []) if component else []
+                    # 🔧 [FIX_INNERTRACE] Log inizio matching
+                    logging.debug(f"[FIX_INNERTRACE] inizio matching extract - span_id={span_id}, component={component}, event_ts={event.get('ts')}, storytelling_extracts_components={list(storytelling_extracts.keys())}")
+                    
+                    # 🔧 FIX: Cerca in tutti i componenti, non solo quello trovato
                     matched_extract = None
+                    matched_component = None
+                    
+                    # Prima cerca per span_id in tutti i componenti
                     if span_id:
-                        # Cerca per span_id
-                        for extract in node_calls:
-                            if extract.get("span_id") == span_id:
-                                matched_extract = extract
+                        # 🔧 [FIX_INNERTRACE] Log ricerca per span_id
+                        logging.debug(f"[FIX_INNERTRACE] ricerca per span_id - span_id={span_id}")
+                        for comp_name, node_calls in storytelling_extracts.items():
+                            for extract_idx, extract in enumerate(node_calls):
+                                extract_span_id = extract.get("span_id")
+                                if extract_span_id == span_id:
+                                    matched_extract = extract
+                                    matched_component = comp_name
+                                    # 🔧 [FIX_INNERTRACE] Log match trovato per span_id
+                                    logging.debug(f"[FIX_INNERTRACE] match trovato per span_id - span_id={span_id}, component={comp_name}, extract_idx={extract_idx}, extract_has_prompt={bool(extract.get('prompt'))}, extract_has_response={bool(extract.get('response'))}")
+                                    break
+                            if matched_extract:
                                 break
-                    
-                    # Fallback: usa call_number se span_id non matcha (per retrocompatibilità)
-                    if not matched_extract:
-                        call_number = ""
-                        if span_id:
-                            call_number = get_llm_call_number(span_id)
-                        idx = int(call_number.strip().replace("#", "") or "1") - 1
-                        if 0 <= idx < len(node_calls):
-                            matched_extract = node_calls[idx]
-                    
-                    if matched_extract:
-                        # Trova l'idx nella lista per accedere a synthesized_map
-                        extract_idx = node_calls.index(matched_extract) if matched_extract in node_calls else -1
-                        if extract_idx >= 0:
-                            synthesized = synthesized_map.get((component, extract_idx, "response"))
-                            if synthesized:
-                                details += f" | RESPONSE (synth): {synthesized}"
+                        if not matched_extract:
+                            # 🔧 [FIX_INNERTRACE] Log span_id non trovato
+                            logging.debug(f"[FIX_INNERTRACE] span_id NON TROVATO - span_id={span_id}, cercato in {len(storytelling_extracts)} componenti")
+                    else:
+                        # 🔧 FIX: Se span_id è None, cerca per timestamp (entro 1 secondo)
+                        event_ts = event.get("ts")
+                        # 🔧 [FIX_INNERTRACE] Log ricerca per timestamp
+                        logging.debug(f"[FIX_INNERTRACE] ricerca per timestamp - event_ts={event_ts}, span_id=None")
+                        if event_ts:
+                            closest_extract = None
+                            closest_ts_diff = float('inf')
+                            for comp_name, node_calls in storytelling_extracts.items():
+                                for extract_idx, extract in enumerate(node_calls):
+                                    extract_ts = extract.get("ts")
+                                    if extract_ts:
+                                        ts_diff = abs(extract_ts - event_ts)
+                                        if ts_diff < closest_ts_diff and ts_diff < 1.0:  # Entro 1 secondo
+                                            closest_ts_diff = ts_diff
+                                            closest_extract = extract
+                                            matched_component = comp_name
+                            if closest_extract:
+                                matched_extract = closest_extract
+                                # 🔧 [FIX_INNERTRACE] Log match trovato per timestamp
+                                logging.debug(f"[FIX_INNERTRACE] match trovato per timestamp - event_ts={event_ts}, closest_ts_diff={closest_ts_diff:.3f}s, component={matched_component}, extract_has_prompt={bool(closest_extract.get('prompt'))}, extract_has_response={bool(closest_extract.get('response'))}")
                             else:
+                                # 🔧 [FIX_INNERTRACE] Log timestamp non trovato
+                                logging.debug(f"[FIX_INNERTRACE] timestamp NON TROVATO - event_ts={event_ts}, cercato in {len(storytelling_extracts)} componenti")
+                    
+                    # Fallback: se component è disponibile, cerca lì
+                    if not matched_extract and component:
+                        # 🔧 [FIX_INNERTRACE] Log fallback per component
+                        logging.debug(f"[FIX_INNERTRACE] fallback ricerca per component - component={component}, span_id={span_id}")
+                        node_calls = storytelling_extracts.get(component, [])
+                        if span_id:
+                            # Cerca per span_id
+                            for extract_idx, extract in enumerate(node_calls):
+                                if extract.get("span_id") == span_id:
+                                    matched_extract = extract
+                                    matched_component = component
+                                    # 🔧 [FIX_INNERTRACE] Log match trovato in fallback
+                                    logging.debug(f"[FIX_INNERTRACE] match trovato in fallback span_id - component={component}, extract_idx={extract_idx}")
+                                    break
+                        
+                        # Fallback: usa call_number se span_id non matcha (per retrocompatibilità)
+                        if not matched_extract:
+                            call_number = ""
+                            if span_id:
+                                call_number = get_llm_call_number(span_id)
+                            idx = int(call_number.strip().replace("#", "") or "1") - 1
+                            if 0 <= idx < len(node_calls):
+                                matched_extract = node_calls[idx]
+                                matched_component = component
+                                # 🔧 [FIX_INNERTRACE] Log match trovato per call_number
+                                logging.debug(f"[FIX_INNERTRACE] match trovato per call_number - component={component}, call_number={call_number}, idx={idx}, node_calls_len={len(node_calls)}")
+                            else:
+                                # 🔧 [FIX_INNERTRACE] Log call_number non valido
+                                logging.debug(f"[FIX_INNERTRACE] call_number NON VALIDO - component={component}, call_number={call_number}, idx={idx}, node_calls_len={len(node_calls)}")
+                    
+                    if matched_extract and matched_component:
+                        # 🎯 v0.3: Mostra sintesi separate di prompt e response + path ai file completi
+                        node_calls = storytelling_extracts.get(matched_component, [])
+                        extract_idx = node_calls.index(matched_extract) if matched_extract in node_calls else -1
+                        
+                        # 🔧 [FIX_INNERTRACE] Log matching
+                        logging.debug(f"[FIX_INNERTRACE] llm.call.end matching - span_id={span_id}, component={component}, matched_component={matched_component}, extract_idx={extract_idx}, node_calls_len={len(node_calls)}")
+                        
+                        if extract_idx >= 0:
+                            # Cerca sintesi separate e path ai file
+                            lookup_key = (matched_component, extract_idx)
+                            summaries_data = prompt_response_summaries.get(lookup_key)
+                            
+                            # 🔧 [FIX_INNERTRACE] Log lookup sintesi
+                            logging.debug(f"[FIX_INNERTRACE] lookup sintesi - key={lookup_key}, found={summaries_data is not None}, total_keys_in_map={len(prompt_response_summaries)}")
+                            
+                            if summaries_data:
+                                prompt_summary = summaries_data.get("prompt_summary", "")
+                                response_summary = summaries_data.get("response_summary", "")
+                                prompt_file = summaries_data.get("prompt_file", "")
+                                response_file = summaries_data.get("response_file", "")
+                                
+                                # 🔧 [FIX_INNERTRACE] Log contenuto sintesi
+                                prompt_summary_len = len(prompt_summary) if prompt_summary else 0
+                                response_summary_len = len(response_summary) if response_summary else 0
+                                prompt_summary_preview = prompt_summary[:50] if prompt_summary else "None"
+                                response_summary_preview = response_summary[:50] if response_summary else "None"
+                                logging.debug(f"[FIX_INNERTRACE] sintesi disponibili - prompt_len={prompt_summary_len}, response_len={response_summary_len}, prompt_preview='{prompt_summary_preview}...', response_preview='{response_summary_preview}...'")
+                                
+                                # Mostra sintesi prompt con path al file completo
+                                if prompt_summary:
+                                    # 🔧 FIX: Usa il formato corretto "PROMPT (synth):" invece di "PROMPT_INTENT:"
+                                    details += f" | PROMPT (synth): {prompt_summary}"
+                                    if prompt_file:
+                                        details += f" [Full prompt: {prompt_file}]"
+                                else:
+                                    # 🔧 [FIX_INNERTRACE] Log se prompt_summary è vuoto
+                                    logging.debug(f"[FIX_INNERTRACE] prompt_summary VUOTO - key={lookup_key}, summaries_data_keys={list(summaries_data.keys())}")
+                                
+                                # Mostra sintesi response con path al file completo
+                                if response_summary:
+                                    # 🔧 FIX: Usa il formato corretto "RESPONSE (synth):" invece di "RESPONSE_SUMMARY:"
+                                    details += f" | RESPONSE (synth): {response_summary}"
+                                    if response_file:
+                                        details += f" [Full response: {response_file}]"
+                                else:
+                                    # 🔧 [FIX_INNERTRACE] Log se response_summary è vuoto
+                                    logging.debug(f"[FIX_INNERTRACE] response_summary VUOTO - key={lookup_key}, summaries_data_keys={list(summaries_data.keys())}, response_summary_value='{response_summary}'")
+                            else:
+                                # 🔧 [FIX_INNERTRACE] Log se summaries_data non trovato
+                                available_keys = list(prompt_response_summaries.keys())[:10]  # Primi 10 per non intasare
+                                logging.debug(f"[FIX_INNERTRACE] summaries_data NON TROVATO - key={lookup_key}, available_keys_sample={available_keys}, matched_component={matched_component}, extract_idx={extract_idx}")
+                                # 🔧 FALLBACK: Se sintesi non disponibili, mostra snippet originali
+                                prompt_snippet = matched_extract.get("prompt", "")
                                 resp_snippet = matched_extract.get("response", "")
+                                if prompt_snippet:
+                                    prompt_preview = prompt_snippet[:200].strip().replace("\n", " ")
+                                    details += f" | PROMPT: {prompt_preview}..."
                                 if resp_snippet:
-                                    details += f" | RESPONSE: {resp_snippet[:150].strip()}..."
+                                    resp_preview = resp_snippet[:150].strip().replace("\n", " ")
+                                    details += f" | RESPONSE: {resp_preview}..."
+                        else:
+                            # 🔧 [FIX_INNERTRACE] Log se extract_idx non valido
+                            logging.debug(f"[FIX_INNERTRACE] extract_idx NON VALIDO - extract_idx={extract_idx}, matched_extract_in_node_calls={matched_extract in node_calls if matched_extract else False}, node_calls_len={len(node_calls)}")
+                            # 🔧 FALLBACK: Se idx non trovato, mostra prompt e response originali
+                            prompt_snippet = matched_extract.get("prompt", "")
+                            resp_snippet = matched_extract.get("response", "")
+                            if prompt_snippet:
+                                prompt_preview = prompt_snippet[:200].strip().replace("\n", " ")
+                                details += f" | PROMPT: {prompt_preview}..."
+                            if resp_snippet:
+                                resp_preview = resp_snippet[:150].strip().replace("\n", " ")
+                                details += f" | RESPONSE: {resp_preview}..."
         elif event_type == "tool.call.start":
             tool = payload.get('tool', 'unknown')
             details = f"({tool})"
@@ -1295,7 +1642,8 @@ def timeline_view(
         compact_lines = []
         for line in lines:
             # Include run boundaries and LLM calls only
-            if "run.start" in line or "run.end" in line or "llm.call" in line:
+            # Exclude function-level spans (use full view to see function traces)
+            if ("run.start" in line or "run.end" in line or "llm.call" in line) and "[function]" not in line:
                 compact_lines.append(line)
         return compact_lines
 

@@ -7,7 +7,11 @@ import sys
 from pathlib import Path
 
 from .blob_store import BlobStore
-from .synthesis import get_synthesis_provider, TruncationProvider
+from .synthesis import (
+    get_synthesis_provider, 
+    TruncationProvider,
+    create_multi_provider_from_quality_config
+)
 from .projections import (
     compact_run_view,
     failure_context_view,
@@ -98,7 +102,8 @@ def cmd_view_run(args):
         run_id = find_last_run(
             events_path=args.events_path,
             status=status,
-            entrypoint=args.endpoint
+            entrypoint=args.endpoint,
+            offset=0
         )
         
         if not run_id:
@@ -131,7 +136,8 @@ def cmd_view_failure(args):
         run_id = find_last_run(
             events_path=args.events_path,
             status=status,
-            entrypoint=args.endpoint
+            entrypoint=args.endpoint,
+            offset=0
         )
         
         if not run_id:
@@ -176,32 +182,36 @@ def cmd_timeline(args):
     # Load .env file if present
     load_env_file()
     
-    # Apply defaults: --last is True by default
-    # Since argparse with action="store_true" sets False if not present, we need to set defaults
-    if not args.run_id and not args.last_error and not args.last_ok:
-        args.last = True
+    # Apply defaults: --last is 0 by default if no run-id specified
+    if not args.run_id and args.last is None and not args.last_error and not args.last_ok:
+        args.last = 0
     
     # Resolve run_id from filters if needed
     run_id = args.run_id
     
     if not run_id:
-        # Check if any filter is specified (--last is now default True)
-        if not (args.last or args.last_error or args.last_ok):
+        # Check if any filter is specified
+        if args.last is None and not args.last_error and not args.last_ok:
             print("Error: Either --run-id or one of --last/--last-error/--last-ok must be specified.", file=sys.stderr)
             sys.exit(1)
         
         # Try to find run based on filters
         status = None
+        offset = 0
+        
         if args.last_error:
             status = "error"
         elif args.last_ok:
             status = "ok"
-        # args.last means any status (status=None)
+        elif args.last is not None:
+            # args.last means any status (status=None) with specified offset
+            offset = args.last
         
         run_id = find_last_run(
             events_path=args.events_path,
             status=status,
-            entrypoint=args.endpoint
+            entrypoint=args.endpoint,
+            offset=offset
         )
         
         if not run_id:
@@ -217,84 +227,39 @@ def cmd_timeline(args):
         config = load_config()
         
         # Determine quality level (default to high if not specified)
-        quality = getattr(args, "quality", "high")
-        if quality not in ["low", "high"]:
+        quality = getattr(args, "quality", None)
+        if not quality and config:
+            quality = config.get("default_quality", "high")
+        if not quality:
+            quality = "high"
+        
+        # Check if external configuration is specified and use its quality
+        if not quality and config and "external" in config:
+            external_config = config.get("external", {})
+            quality = external_config.get("quality")
+        
+        if quality not in ["low", "medium", "high", "highest"]:
             print(f"Warning: Invalid quality '{quality}', using 'high'", file=sys.stderr)
             quality = "high"
         
-        # Read provider type from env (default: openai if API key is set, else truncation)
-        provider_type = os.getenv("BF_TRACE_SYNTHESIS_PROVIDER", "truncation")
-        
-        # If API key is set, default to openai provider
-        api_key = os.getenv("BF_TRACE_SYNTHESIS_API_KEY")
-        if api_key and provider_type == "truncation":
-            provider_type = "openai"
-        
-        if not api_key:
+        # Nuova struttura config: quality_levels con provider multipli
+        if not config or "quality_levels" not in config or quality not in config.get("quality_levels", {}):
             print(
-                f"Warning: No BF_TRACE_SYNTHESIS_API_KEY found. Using truncation provider (no LLM synthesis).\n"
-                f"To enable synthesis, create tracing/.env with BF_TRACE_SYNTHESIS_API_KEY=sk-your-key",
+                f"Error: No configuration found for quality '{quality}'.\n"
+                f"Configure providers in tracing/config.json under 'quality_levels' -> '{quality}' -> 'providers'",
                 file=sys.stderr,
             )
-
-        if provider_type == "openai":
-            # Get base URL from env or config
-            base_url = os.getenv("BF_TRACE_SYNTHESIS_BASE_URL")
-            if not base_url and config:
-                base_url = config.get("base_url")
-
-            if not base_url:
-                print(
-                    "Error: BF_TRACE_SYNTHESIS_BASE_URL not configured.\n"
-                    "Set it in tracing/.env or tracing/config.json (\"base_url\" field).\n"
-                    "Example: BF_TRACE_SYNTHESIS_BASE_URL=http://localhost:5099/v1",
-                    file=sys.stderr
-                )
-                sys.exit(1)
+            sys.exit(1)
             
-            # Get model from config based on quality, or from env, or default
-            model = None
-            if config and "models" in config and quality in config["models"]:
-                model = config["models"][quality].get("model")
-            
-            if not model:
-                model = os.getenv("BF_TRACE_SYNTHESIS_MODEL")
-            
-            if not model:
-                # Fallback defaults (use internal models)
-                model = "vllm/qwen3-30b-a3b-thinking-2507-awq-4bit" if quality == "high" else "vllm/google/gemma-3-270m-it"
-
-            if not api_key:
-                print(
-                    "Error: --synthesize with openai provider requires BF_TRACE_SYNTHESIS_API_KEY environment variable.\n"
-                    "Set it in tracing/.env or as environment variable.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-            # Get timeout and max_concurrent from config or use defaults
-            timeout = 120.0  # Default 120 seconds (conservative timeout for synthesis)
-            max_concurrent = 5  # Default 5 concurrent requests (reduced to avoid server overload)
-            
-            if config:
-                timeout = config.get("synthesis_timeout", timeout)
-                max_concurrent = config.get("synthesis_max_concurrent", max_concurrent)
-            
-            print(f"Using model '{model}' for quality '{quality}' (timeout={timeout}s, max_concurrent={max_concurrent})", file=sys.stderr)
-            synthesis_provider = get_synthesis_provider(
-                "openai", 
-                base_url=base_url, 
-                api_key=api_key, 
-                model=model,
-                timeout=timeout,
-                max_concurrent=max_concurrent
-            )
-        else:
-            # Default to truncation provider
-            synthesis_provider = TruncationProvider()
+        quality_config = config["quality_levels"][quality]
+        verbose = getattr(args, 'verbose', False)
+        print(f"Using quality level '{quality}' with {len(quality_config.get('providers', []))} provider(s) configured", file=sys.stderr)
+        # verbose e callback verranno impostati in timeline_view prima di chiamare synthesize_batch
+        synthesis_provider = create_multi_provider_from_quality_config(quality_config, verbose=verbose)
 
     lines = timeline_view(
-        run_id, args.events_path, compact=args.compact, synthesize=args.synthesize, synthesis_provider=synthesis_provider
+        run_id, args.events_path, compact=args.compact, synthesize=args.synthesize, 
+        synthesis_provider=synthesis_provider, verbose=getattr(args, 'verbose', False)
     )
 
     for line in lines:
@@ -367,8 +332,8 @@ def main():
     # timeline command (enterprise-level debug view)
     parser_timeline = subparsers.add_parser("timeline", help="View timeline with human-readable timestamps")
     parser_timeline.add_argument("--run-id", help="Run ID (optional if using --last)")
-    parser_timeline.add_argument("--last", action="store_true", 
-                                 help="Use most recent run (default: True)")
+    parser_timeline.add_argument("--last", type=int, nargs='?', const=0, default=None,
+                                 help="Use n-th most recent run (0 = most recent, 1 = penultimate, etc.). Default: 0 if no run-id specified")
     parser_timeline.add_argument("--last-error", action="store_true", help="Use most recent error run")
     parser_timeline.add_argument("--last-ok", action="store_true", help="Use most recent successful run")
     parser_timeline.add_argument("--endpoint", help="Filter by entrypoint (e.g., api.chat_v2)")
@@ -382,9 +347,15 @@ def main():
     )
     parser_timeline.add_argument(
         "--quality",
-        choices=["low", "high"],
+        choices=["low", "medium", "high", "highest"],
         default="high",
-        help="Quality level for synthesis: 'low' uses faster/cheaper model, 'high' uses more capable model (default: high). Models configured in tracing/config.json",
+        help="Quality level for synthesis: 'low', 'medium', 'high', or 'highest'. Models and providers configured in tracing/config.json. If 'external' config is set, uses its quality automatically.",
+    )
+    parser_timeline.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show verbose output including synthesis provider fallback messages",
     )
     parser_timeline.set_defaults(func=cmd_timeline)
 
@@ -400,7 +371,7 @@ def main():
             # Need to manually set all attributes that argparse would have set for timeline command
             args.command = "timeline"
             args.run_id = None
-            args.last = True
+            args.last = 0  # Use most recent run (0 = most recent)
             args.last_error = False
             args.last_ok = False
             args.endpoint = None
