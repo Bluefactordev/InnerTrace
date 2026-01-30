@@ -4,10 +4,11 @@ import sys
 import types
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
-from innertrace import ReplayContext, NonDeterminismDetected, tool as replay_tool
+from innertrace import ReplayContext, NonDeterminismDetected, tool as replay_tool, ReplayToolError
 from innertrace.replay import ReplayManager
 from innertrace.tracing.blob_store import BlobStore
 
@@ -18,7 +19,8 @@ def _write_events(events_path: Path, events) -> None:
             handle.write(json.dumps(event) + "\n")
 
 
-def _install_dummy_openai():
+@pytest.fixture
+def dummy_openai():
     module = types.ModuleType("openai")
 
     class Completions:
@@ -42,10 +44,13 @@ def _install_dummy_openai():
 
     module.ChatCompletion = ChatCompletion
     sys.modules["openai"] = module
-    return module
+    try:
+        yield module
+    finally:
+        sys.modules.pop("openai", None)
 
 
-def _prepare_replay_files(tmp_path: Path):
+def _prepare_replay_files(tmp_path: Path, *, tool_status: str = "ok", tool_error: Optional[str] = None):
     run_id = "run-123"
     events_dir = tmp_path / "traces" / "events"
     blobs_dir = tmp_path / "traces" / "blobs"
@@ -56,6 +61,7 @@ def _prepare_replay_files(tmp_path: Path):
     prompt_ref = blob_store.put(prompt, "json")
     response_ref = blob_store.put("hello", "txt")
     tool_result_ref = blob_store.put({"value": 42}, "json")
+    error_ref = blob_store.put(tool_error, "txt") if tool_error else None
     args_ref = blob_store.put({"query": "abc"}, "json")
 
     events = [
@@ -69,16 +75,20 @@ def _prepare_replay_files(tmp_path: Path):
         {"type": "tool.call.start", "payload": {"tool": "search", "args_ref": args_ref}},
         {
             "type": "tool.call.end",
-            "payload": {"tool": "search", "status": "ok", "result_ref": tool_result_ref},
+            "payload": {
+                "tool": "search",
+                "status": tool_status,
+                "result_ref": tool_result_ref,
+                **({"error_ref": error_ref} if error_ref else {}),
+            },
         },
     ]
     _write_events(events_dir / f"{run_id}.jsonl", events)
     return run_id, events_dir, blobs_dir
 
 
-def test_replay_openai_and_tool(tmp_path):
+def test_replay_openai_and_tool(tmp_path, dummy_openai):
     run_id, events_dir, blobs_dir = _prepare_replay_files(tmp_path)
-    openai = _install_dummy_openai()
     call_counter = {"count": 0}
 
     @replay_tool(name="search")
@@ -86,20 +96,17 @@ def test_replay_openai_and_tool(tmp_path):
         call_counter["count"] += 1
         return {"value": 999}
 
-    try:
-        with ReplayContext(run_id, events_dir=str(events_dir), blobs_dir=str(blobs_dir)):
-            response = openai.resources.chat.completions.Completions().create(
-                messages=[{"role": "user", "content": "hi"}],
-                model="gpt-4",
-            )
-            assert response.choices[0].message.content == "hello"
-            result = search(query="abc")
-            assert result == {"value": 42}
-            assert call_counter["count"] == 0
-            assert datetime.now().isoformat().startswith("2024-01-01T00:00:00")
-            assert random.random() == pytest.approx(0.9664535356921388)
-    finally:
-        sys.modules.pop("openai", None)
+    with ReplayContext(run_id, events_dir=str(events_dir), blobs_dir=str(blobs_dir)):
+        response = dummy_openai.resources.chat.completions.Completions().create(
+            messages=[{"role": "user", "content": "hi"}],
+            model="gpt-4",
+        )
+        assert response.choices[0].message.content == "hello"
+        result = search(query="abc")
+        assert result == {"value": 42}
+        assert call_counter["count"] == 0
+        assert datetime.now().isoformat().startswith("2024-01-01T00:00:00")
+        assert random.random() == pytest.approx(0.9664535356921388)
 
 
 def test_replay_prompt_validation(tmp_path):
@@ -112,3 +119,14 @@ def test_replay_prompt_validation(tmp_path):
     )
     with pytest.raises(NonDeterminismDetected):
         manager.next_llm_response([{"role": "user", "content": "different"}], model="gpt-4")
+
+
+def test_replay_tool_error(tmp_path):
+    run_id, events_dir, blobs_dir = _prepare_replay_files(
+        tmp_path,
+        tool_status="error",
+        tool_error="Recorded failure",
+    )
+    manager = ReplayManager(run_id, events_dir=str(events_dir), blobs_dir=str(blobs_dir))
+    with pytest.raises(ReplayToolError, match="Recorded failure"):
+        manager.next_tool_result("search")

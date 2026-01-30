@@ -34,7 +34,7 @@ import innertrace
 
 # Debug a failed run
 with innertrace.replay(run_id="01KG5HCD..."):
-    result = agent.run("Qual è la quotazione di NVIDIA?")
+    result = agent.run("Qual è la quotazione di NVIDIA?")  # agent is your existing workflow
 ```
 
 View traces using the CLI:

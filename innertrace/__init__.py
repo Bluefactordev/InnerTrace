@@ -11,6 +11,7 @@ from .tracing.function_tracing import (
 from .replay import (
     ReplayContext,
     NonDeterminismDetected,
+    ReplayToolError,
     replay,
     tool,
     replay_tool,
@@ -30,6 +31,7 @@ __all__ = [
     "get_global_trace_filters",
     "ReplayContext",
     "NonDeterminismDetected",
+    "ReplayToolError",
     "replay",
     "tool",
     "replay_tool",
