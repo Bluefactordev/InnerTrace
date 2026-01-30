@@ -100,7 +100,13 @@ class Tracer:
         # Ensure directories exist
         self.events_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def start_run(self, entrypoint: str, args: Optional[Dict] = None, env: Optional[Dict] = None) -> str:
+    def start_run(
+        self,
+        entrypoint: str,
+        args: Optional[Dict] = None,
+        env: Optional[Dict] = None,
+        seed: Optional[int] = None,
+    ) -> str:
         """
         Start a new run.
 
@@ -108,6 +114,7 @@ class Tracer:
             entrypoint: Entry point identifier
             args: Run arguments
             env: Environment variables (will be redacted)
+            seed: Optional random seed for deterministic replay
 
         Returns:
             run_id
@@ -123,6 +130,8 @@ class Tracer:
         }
         if env:
             payload["env"] = redact_payload(env)
+        if seed is not None:
+            payload["random_seed"] = seed
 
         self._emit_event(
             run_id=run_id,

@@ -8,6 +8,15 @@ from .tracing.function_tracing import (
     set_global_trace_filters,
     get_global_trace_filters,
 )
+from .replay import (
+    ReplayContext,
+    NonDeterminismDetected,
+    replay,
+    tool,
+    replay_tool,
+    record_seed,
+    in_replay_mode,
+)
 
 __all__ = [
     "Tracer",
@@ -19,4 +28,11 @@ __all__ = [
     "trace_module",
     "set_global_trace_filters",
     "get_global_trace_filters",
+    "ReplayContext",
+    "NonDeterminismDetected",
+    "replay",
+    "tool",
+    "replay_tool",
+    "record_seed",
+    "in_replay_mode",
 ]
