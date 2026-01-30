@@ -226,7 +226,12 @@ async def traced_sandbox_exec(
 
 
 # Convenience function to start a traced run
-def start_traced_run(entrypoint: str, args: Optional[Dict] = None, env: Optional[Dict] = None) -> str:
+def start_traced_run(
+    entrypoint: str,
+    args: Optional[Dict] = None,
+    env: Optional[Dict] = None,
+    seed: Optional[int] = None,
+) -> str:
     """
     Start a traced run.
 
@@ -239,7 +244,7 @@ def start_traced_run(entrypoint: str, args: Optional[Dict] = None, env: Optional
             end_traced_run("error")
     """
     tracer = get_tracer()
-    return tracer.start_run(entrypoint, args, env)
+    return tracer.start_run(entrypoint, args, env, seed=seed)
 
 
 def end_traced_run(status: str = "ok", latency_ms: Optional[int] = None):

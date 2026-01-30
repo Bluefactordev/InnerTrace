@@ -25,6 +25,18 @@ run_id = tracer.start_run(entrypoint="api.chat", args={"query": "Hello"})
 tracer.end_run(status="ok")
 ```
 
+### Replay Mode (Experimental)
+
+InnerTrace can replay a failed run deterministically using the recorded event stream.
+
+```python
+import innertrace
+
+# Debug a failed run
+with innertrace.replay(run_id="01KG5HCD..."):
+    result = agent.run("Qual è la quotazione di NVIDIA?")  # agent is your existing workflow
+```
+
 View traces using the CLI:
 
 ```bash
