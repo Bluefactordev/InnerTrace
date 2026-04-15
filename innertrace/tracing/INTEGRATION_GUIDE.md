@@ -411,6 +411,63 @@ def handle_exception(e):
     return jsonify({"error": str(e)}), 500
 ```
 
+### 7. Business KPI Events (without new telemetry stack)
+
+If you need product-level KPIs (automation/channel metrics), emit custom events on the active run using `tracer.emit(...)`.
+
+This keeps one observability pipeline:
+- execution/debug events (`run.*`, `llm.call.*`, `tool.call.*`)
+- business/KPI events (`biz.*`)
+
+#### Naming Convention
+
+- Use `biz.<domain>.<event>` (example: `biz.composer.request`, `biz.composer.result`)
+- Keep payload small, structured, and non-sensitive
+- Never duplicate full prompts/responses into business payloads
+
+#### Example: Document Composer KPI Events
+
+```python
+from innertrace.tracing import get_tracer
+
+def emit_business_event(event_type: str, payload: dict):
+    tracer = get_tracer()
+    if not tracer.current_run_id():
+        return
+    tracer.emit(
+        type=event_type,
+        actor="api.document_composer",
+        level="info",
+        tags=["business", "composer"],
+        payload=payload,
+    )
+
+# request event
+emit_business_event("biz.composer.request", {
+    "project_id": project_id,
+    "document_type_id": type_id,
+    "conversation_id": conversation_id,
+    "use_rag": use_rag,
+    "reference_count": reference_count,
+})
+
+# result event
+emit_business_event("biz.composer.result", {
+    "project_id": project_id,
+    "document_type_id": type_id,
+    "conversation_id": conversation_id,
+    "status": "ok",
+    "latency_ms": latency_ms,
+    "content_empty": content_empty,
+})
+```
+
+#### Why this approach
+
+- No second metrics file format to maintain
+- Same `run_id` links technical and business signals
+- Timeline and projections can be extended incrementally
+
 ## Integration Checklist
 
 - [ ] Add tracing to LLM calls in ModelProvider
@@ -420,6 +477,7 @@ def handle_exception(e):
 - [ ] Add run start/end to API routes
 - [ ] Add run start/end to CLI entry points
 - [ ] Add exception tracing to error handlers
+- [ ] Add business events (`biz.*`) for product KPIs where needed
 - [ ] Test with a real run
 - [ ] Verify events are written to `traces/events.jsonl`
 - [ ] Verify blobs are stored in `traces/blobs/sha256/`

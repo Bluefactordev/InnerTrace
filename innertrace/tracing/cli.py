@@ -62,11 +62,11 @@ def cmd_ls_runs(args):
         print("No runs found.")
         return
 
-    print(f"{'Run ID':<40} {'Entrypoint':<30} {'Status':<10} {'Start Time':<20}")
-    print("-" * 100)
+    print(f"{'Run ID':<44} {'Entrypoint':<30} {'Status':<10} {'Start Time':<20}")
+    print("-" * 110)
 
     for run in runs:
-        run_id = run["run_id"][:38]
+        run_id = run["run_id"]  # Full ID, no truncation
         entrypoint = (run.get("entrypoint") or "unknown")[:28]
         status = run.get("status") or "running"
         start_ts = run.get("start_ts", 0)
@@ -110,7 +110,7 @@ def cmd_view_run(args):
             print("No matching run found.", file=sys.stderr)
             sys.exit(1)
         
-        print(f"Using run_id: {run_id[:8]}...", file=sys.stderr)
+        print(f"Using run_id: {run_id}", file=sys.stderr)
     
     view = compact_run_view(run_id, args.events_path)
     print(json.dumps(view, indent=2))
@@ -144,7 +144,7 @@ def cmd_view_failure(args):
             print("No matching run found.", file=sys.stderr)
             sys.exit(1)
         
-        print(f"Using run_id: {run_id[:8]}...", file=sys.stderr)
+        print(f"Using run_id: {run_id}", file=sys.stderr)
     
     view = failure_context_view(run_id, n=args.n, events_path=args.events_path)
     print(json.dumps(view, indent=2))
@@ -218,7 +218,7 @@ def cmd_timeline(args):
             print("No matching run found.", file=sys.stderr)
             sys.exit(1)
         
-        print(f"Using run_id: {run_id[:8]}...", file=sys.stderr)
+        print(f"Using run_id: {run_id}", file=sys.stderr)
     
     # Configure synthesis provider from configuration and environment variables
     synthesis_provider = None

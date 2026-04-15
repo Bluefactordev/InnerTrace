@@ -20,6 +20,10 @@ class TaskDuration(str, Enum):
     MEDIUM = "medium"
     LONG = "long"
 
+TaskOutputMode = Literal["text", "json_object", "json_list"]
+TaskConsumerPolicy = Literal["direct_read", "inspect_then_process", "direct_process"]
+TaskInputArtifactKind = Literal["none", "dataset_listing", "dataset_path_list", "document_content", "data_handle"]
+
 class StrategicObjective(BaseModel):
     """Obiettivo strategico del meta-planner"""
     id: str = Field(description="ID univoco dell'obiettivo")
@@ -78,6 +82,22 @@ class TacticalTask(BaseModel):
         ...,  # NO DEFAULT - OBBLIGATORIO
         description="OBBLIGATORIO: 'batch_programmatic' se >3 elementi, 'sequential_manual' SOLO se <=3"
     )
+    input_artifact_kind: TaskInputArtifactKind = Field(
+        ...,
+        description="Tipo di artifact in ingresso: none, dataset_listing, dataset_path_list, document_content o data_handle"
+    )
+    consumer_policy: TaskConsumerPolicy = Field(
+        ...,
+        description="Policy di consumo artifact: direct_read, inspect_then_process o direct_process"
+    )
+    output_mode: TaskOutputMode = Field(
+        ...,
+        description="Forma dell'output del task: text, json_object o json_list"
+    )
+    persistence_required: bool = Field(
+        ...,
+        description="True se il risultato deve essere persistito come artifact per task downstream"
+    )
     
     # Campi opzionali secondari
     requires_human_reasoning: Optional[bool] = Field(
@@ -90,54 +110,6 @@ class TacticalTask(BaseModel):
         extra = "forbid"  # Reject any field not in schema
         validate_assignment = True  # Validate on assignment
     
-    @root_validator(pre=False, skip_on_failure=True)
-    def enforce_cardinality_strategy_coherence(cls, values):
-        """
-        🔧 ARCHITECTURAL GUARDRAIL: Prevent Agent Loop Fatigue
-        
-        Enforces model-driven strategy correction to prevent inefficient Agent Loops:
-        - estimated_item_count > 5 + sequential_manual → AUTO-CORRECTED to batch_programmatic
-        
-        Rationale: 
-        - Loop dell'Agente (sequential): LLM invoked N times = slow, expensive, context errors
-        - Loop del Codice (batch): Python script generated once = fast, efficient, reliable
-        
-        SOGLIA: 5 elementi
-        - Se count > 5: Code Orchestrator MUST handle it (even if serial, not parallel)
-        - Se count <= 5: Agent MAY handle it manually
-        """
-        estimated_item_count = values.get('estimated_item_count')
-        execution_strategy = values.get('execution_strategy')
-        task_id = values.get('id', 'unknown')
-        
-        # These fields are MANDATORY - if missing, let Pydantic raise ValidationError
-        if estimated_item_count is None or execution_strategy is None:
-            # This should never happen with Field(...) but check anyway
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(
-                f"❌ VALIDATION ERROR: Missing mandatory fields - "
-                f"estimated_item_count={estimated_item_count}, execution_strategy={execution_strategy}"
-            )
-            # Don't provide defaults - let it fail for proper error feedback
-            return values
-        
-        # 🔧 ARCHITECTURAL FIX: Threshold increased from 3 to 5
-        # Prevents Agent Loop fatigue by delegating high-volume tasks to Code Orchestrator
-        BATCH_THRESHOLD = 5
-        
-        if estimated_item_count > BATCH_THRESHOLD and execution_strategy == 'sequential_manual':
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(
-                f"⚠️ ARCHITECTURE FIX: Task {task_id} has {estimated_item_count} items but LLM chose 'sequential_manual'. "
-                f"Auto-correcting to 'batch_programmatic' to avoid Agent Loop. "
-                f"Reason: Python loop preferred over Agent loop for N > {BATCH_THRESHOLD}"
-            )
-            values['execution_strategy'] = 'batch_programmatic'
-        
-        return values
-
 class ProjectPlan(BaseModel):
     """Piano tattico del project-planner"""
     tactical_tasks: List[TacticalTask] = Field(description="Lista dei task tattici")
@@ -157,7 +129,14 @@ class ProjectPlan(BaseModel):
                     'required_tools': [],
                     'dependencies': [],
                     'estimated_duration': 'medium',
-                    'success_criteria': 'Completa l\'obiettivo originale'
+                    'success_criteria': 'Completa l\'obiettivo originale',
+                    'cardinality_analysis': 'Singolo task di fallback',
+                    'estimated_item_count': 1,
+                    'execution_strategy': 'sequential_manual',
+                    'input_artifact_kind': 'none',
+                    'consumer_policy': 'direct_read',
+                    'output_mode': 'text',
+                    'persistence_required': False,
                 }]
         return values
 

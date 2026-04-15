@@ -125,6 +125,39 @@ The v0.1 API remains stable. New features in v0.2 are additive and backward comp
 - **STABLE**: `story.phase.start`, `story.phase.end`, `story.objective`, `story.task`, `story.link`
 - **EXPERIMENTAL**: `story.quality.task`, `story.quality.phase`
 
+### Business Events (App-Specific)
+
+InnerTrace core vocabulary remains stable for execution observability.  
+For product KPIs (automation/channel/domain signals), emit **custom business events** with a clear prefix:
+
+- Recommended prefix: `biz.*`
+- Example: `biz.composer.request`, `biz.composer.result`
+- Keep payload compact and non-sensitive (no raw user content unless strictly needed)
+
+Example:
+
+```python
+from innertrace.tracing import get_tracer
+
+tracer = get_tracer()
+if tracer.current_run_id():
+    tracer.emit(
+        type="biz.composer.result",
+        actor="api.document_composer",
+        tags=["business", "composer", "ok"],
+        payload={
+            "project_id": project_id,
+            "document_type_id": type_id,
+            "status": "ok",
+            "latency_ms": 842,
+            "reference_count": 3,
+            "content_empty": False,
+        },
+    )
+```
+
+This does not change core semantics and enables KPI projections without a separate telemetry stack.
+
 ## Usage
 
 ### 1. Start a Traced Run

@@ -135,6 +135,141 @@ class StorytellingExtractor:
 
         return frontend_json
 
+    def _normalize_story_event(self, event: Dict[str, Any], default_phase: Optional[str] = None) -> Dict[str, Any]:
+        """Normalize legacy and projected events into a common flat structure."""
+        payload = event.get("data")
+        if payload is None:
+            payload = event.get("payload", {})
+        if not isinstance(payload, dict):
+            payload = {"value": payload}
+
+        phase = event.get("phase") or payload.get("phase") or default_phase
+        return {
+            "timestamp": event.get("timestamp") or event.get("ts_iso") or "",
+            "type": event.get("type") or event.get("event_type") or "unknown",
+            "data": payload,
+            "phase": phase,
+        }
+
+    def _flatten_story_events(self, data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Flatten either legacy top-level events or phase-based projection events."""
+        if not data:
+            return []
+
+        flat_events: List[Dict[str, Any]] = []
+
+        raw_events = data.get("events")
+        if isinstance(raw_events, list) and raw_events:
+            flat_events.extend(self._normalize_story_event(event) for event in raw_events if isinstance(event, dict))
+
+        phases = data.get("phases", {})
+        if isinstance(phases, dict):
+            for phase_name, phase_data in phases.items():
+                if not isinstance(phase_data, dict):
+                    continue
+                for event in phase_data.get("events", []) or []:
+                    if isinstance(event, dict):
+                        flat_events.append(self._normalize_story_event(event, default_phase=phase_name))
+                for llm_call in phase_data.get("llm_calls", []) or []:
+                    if isinstance(llm_call, dict):
+                        flat_events.append({
+                            "timestamp": llm_call.get("timestamp", ""),
+                            "type": "llm_call",
+                            "data": llm_call,
+                            "phase": llm_call.get("phase") or phase_name,
+                        })
+
+        flat_events.sort(key=lambda item: item.get("timestamp", ""))
+        return flat_events
+
+    def _load_storytelling_from_event_files(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """Load storytelling from legacy event_*.json / llm_call_*.json files in the conversation directory."""
+        dir_path = self.storytelling_dir / conversation_id
+        if not dir_path.exists() or not dir_path.is_dir():
+            return None
+
+        event_files = sorted(dir_path.glob("event_*.json"))
+        llm_call_files = sorted(dir_path.glob("llm_call_*.json"))
+        if not event_files and not llm_call_files:
+            return None
+
+        events: List[Dict[str, Any]] = []
+
+        for file_path in event_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                if isinstance(payload, dict):
+                    events.append(self._normalize_story_event(payload))
+            except Exception as e:
+                logger.warning(f"Could not load storytelling event file {file_path}: {e}")
+
+        for file_path in llm_call_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                if isinstance(payload, dict):
+                    events.append({
+                        "timestamp": payload.get("timestamp", ""),
+                        "type": "llm_call",
+                        "data": payload,
+                        "phase": payload.get("phase"),
+                    })
+            except Exception as e:
+                logger.warning(f"Could not load storytelling llm file {file_path}: {e}")
+
+        events.sort(key=lambda item: item.get("timestamp", ""))
+        if not events:
+            return None
+
+        return {
+            "conversation_id": conversation_id,
+            "created_at": events[0].get("timestamp", ""),
+            "events": events,
+            "quality_metrics": {
+                "task_metrics": [],
+                "phase_metrics": [],
+                "global_difficulty_score": 0.0,
+                "avg_task_quality": 0.0,
+            },
+            "total_events": len(events),
+        }
+
+    def _merge_storytelling_sources(
+        self,
+        projected_storytelling: Optional[Dict[str, Any]],
+        legacy_storytelling: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Merge projection data with richer legacy event files when both are available."""
+        if not projected_storytelling and not legacy_storytelling:
+            return None
+        if not projected_storytelling:
+            return legacy_storytelling
+        if not legacy_storytelling:
+            merged = dict(projected_storytelling)
+            merged.setdefault("events", self._flatten_story_events(merged))
+            if "total_events" not in merged:
+                merged["total_events"] = len(merged.get("events", []))
+            return merged
+
+        merged = dict(projected_storytelling)
+        legacy_events = self._flatten_story_events(legacy_storytelling)
+        if legacy_events:
+            merged["events"] = legacy_events
+            merged["created_at"] = (
+                merged.get("created_at")
+                or legacy_storytelling.get("created_at")
+                or legacy_events[0].get("timestamp", "")
+            )
+            merged["total_events"] = max(
+                int(merged.get("total_events") or 0),
+                len(legacy_events),
+            )
+        else:
+            merged.setdefault("events", self._flatten_story_events(merged))
+
+        return merged
+
     def get_available_conversations(self) -> List[str]:
         """Restituisce la lista delle conversazioni disponibili"""
         conversations = []
@@ -151,17 +286,30 @@ class StorytellingExtractor:
 
         v0.1: Prova events.jsonl PRIMA (projection), poi fallback a file legacy
         """
+        projected_storytelling = None
+        legacy_event_storytelling = None
 
         # 1. NEW v0.1: Try reconstructing from events.jsonl (preferred)
         try:
-            storytelling = self._reconstruct_from_events(conversation_id)
-            if storytelling:
+            projected_storytelling = self._reconstruct_from_events(conversation_id)
+            if projected_storytelling:
                 logger.info(f"✅ Loaded storytelling for {conversation_id} from events.jsonl")
-                return storytelling
         except Exception as e:
             logger.warning(f"Could not reconstruct from events.jsonl for {conversation_id}: {e}")
 
-        # 2. LEGACY: Try directory with full_storytelling.json
+        # 2. LEGACY: Try granular event files in conversation directory
+        try:
+            legacy_event_storytelling = self._load_storytelling_from_event_files(conversation_id)
+            if legacy_event_storytelling:
+                logger.info(f"✅ Loaded storytelling for {conversation_id} from event files (legacy)")
+        except Exception as e:
+            logger.warning(f"Could not load storytelling event files for {conversation_id}: {e}")
+
+        merged_storytelling = self._merge_storytelling_sources(projected_storytelling, legacy_event_storytelling)
+        if merged_storytelling:
+            return merged_storytelling
+
+        # 3. LEGACY: Try directory with full_storytelling.json
         dir_path = self.storytelling_dir / conversation_id
         full_storytelling_path = dir_path / "full_storytelling.json"
         if full_storytelling_path.exists():
@@ -172,7 +320,7 @@ class StorytellingExtractor:
             except Exception as e:
                 logger.error(f"Error loading full_storytelling from directory {conversation_id}: {e}")
 
-        # 3. LEGACY: Try direct file storytelling_*.json
+        # 4. LEGACY: Try direct file storytelling_*.json
         file_path = self.storytelling_dir / f"storytelling_{conversation_id}.json"
         if file_path.exists():
             try:
@@ -183,7 +331,7 @@ class StorytellingExtractor:
                 logger.error(f"Error loading storytelling {conversation_id}: {e}")
                 return None
 
-        # 4. LEGACY: Try with _unknown suffix (fallback)
+        # 5. LEGACY: Try with _unknown suffix (fallback)
         file_path_unknown = self.storytelling_dir / f"storytelling_{conversation_id}_unknown.json"
         if file_path_unknown.exists():
             try:
@@ -202,7 +350,7 @@ class StorytellingExtractor:
         if not data:
             return None
 
-        events = data.get('events', [])
+        events = self._flatten_story_events(data)
 
         # 🆕 Estrai metriche qualitative direttamente dai dati
         quality_metrics = data.get('quality_metrics', {})
@@ -305,7 +453,7 @@ class StorytellingExtractor:
 
         return StorytellingSummary(
             conversation_id=conversation_id,
-            created_at=data.get('created_at', ''),
+            created_at=data.get('created_at') or data.get('session_start', '') or (events[0].get('timestamp', '') if events else ''),
             total_events=len(events),
             strategic_objectives=strategic_objectives,
             tactical_plans=tactical_plans,
@@ -447,7 +595,7 @@ class StorytellingExtractor:
         if not data:
             return [], 0
         
-        events = data.get('events', [])
+        events = self._flatten_story_events(data)
         new_events = events[last_event_index:]
         
         return new_events, len(events)

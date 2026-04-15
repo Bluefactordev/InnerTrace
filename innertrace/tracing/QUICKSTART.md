@@ -45,10 +45,13 @@ b56e211b-140b-411d-a3ba-5c7d004a9a1a     example.workflow     ok      2025-12-17
 ```
 
 This shows:
+- **Run ID**: Full run ID on the first line (no truncation)
 - Human-readable timestamps (HH:MM:SS.sss)
 - Delta times between events (+XXXms)
-- Span hierarchy with indentation
+- Span hierarchy with indentation (tool calls nested under the LLM span that requested them)
 - Key payload details for each event
+- **Tool results/errors**: For each tool call end, a short preview of the result or error (what the model received). With `--synthesize`, tool results are summarized (same provider as prompt/response; essential, concise).
+- **Exceptions**: Full error message for exception events
 
 **💡 Tip**: Use `--last` to debug immediately without looking up run IDs!
 

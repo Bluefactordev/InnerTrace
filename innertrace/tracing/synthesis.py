@@ -27,6 +27,22 @@ class SynthesisProvider(Protocol):
         """
         ...
 
+    async def synthesize_tool_results_batch(self, texts: List[str], max_words: int = 30) -> List[str]:
+        """Synthesize tool result/error content for timeline debug view.
+
+        Same semantics as synthesize_batch but with a prompt tuned for tool output:
+        essential, concise summary of what the model received (result or error).
+        Must go hand in hand with --synthesize for prompts/responses.
+
+        Args:
+            texts: List of tool result or error strings (blob content)
+            max_words: Maximum words per summary (default 30)
+
+        Returns:
+            List of summaries (same length as input texts)
+        """
+        ...
+
 
 class TruncationProvider:
     """Default provider: simple truncation (no network calls)."""
@@ -34,6 +50,11 @@ class TruncationProvider:
     async def synthesize_batch(self, texts: List[str], max_words: int = 15) -> List[str]:
         """Truncate texts to fixed length."""
         max_chars = max_words * 6  # Rough estimate: ~6 chars per word
+        return [text[:max_chars] if text else "" for text in texts]
+
+    async def synthesize_tool_results_batch(self, texts: List[str], max_words: int = 30) -> List[str]:
+        """Truncate tool result/error content (no network calls)."""
+        max_chars = max_words * 6
         return [text[:max_chars] if text else "" for text in texts]
 
 
@@ -590,6 +611,65 @@ class OpenAICompatibleProvider:
         
         return summaries
 
+    async def synthesize_tool_results_batch(self, texts: List[str], max_words: int = 30) -> List[str]:
+        """Synthesize tool result/error content for timeline debug view.
+
+        Uses a prompt tuned for tool output: essential, concise summary of what
+        the model received (result or error). No verbosity, best summary for context.
+        """
+        if not texts:
+            return []
+        try:
+            import aiohttp
+        except ImportError:
+            return [ (text[: (max_words * 6)] if text else "") for text in texts ]
+        system_prompt = (
+            f"You are summarizing a tool result or error for a debugging timeline. "
+            f"The text below is what an LLM received after calling a tool. "
+            f"Produce an essential, concise summary in at most {max_words} words: "
+            f"capture the key outcome (what the model learned) or the error message. "
+            f"No verbosity, no preamble. Output ONLY the summary text."
+        )
+        base_url_fixed = self.base_url.replace("localhost", "127.0.0.1")
+        connector = aiohttp.TCPConnector(ssl=False) if base_url_fixed.startswith("http://") else None
+        timeout_obj = aiohttp.ClientTimeout(total=self.timeout, connect=5.0, sock_read=30.0)
+
+        async def one_tool(session: aiohttp.ClientSession, text: str, index: int) -> tuple[int, str]:
+            text_to_summarize = text[:8000] if len(text) > 8000 else text
+            url = f"{base_url_fixed}/chat/completions"
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Summarize this tool result/error (max {max_words} words, output only summary):\n\n{text_to_summarize}"},
+                ],
+                "temperature": self.temperature,
+                "max_tokens": min(self.max_tokens, 150),
+            }
+            async with session.post(url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}, json=payload, timeout=timeout_obj) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+                return (index, content.strip()[:500])
+        semaphore = asyncio.Semaphore(self.max_concurrent)
+        async def with_sem(session, text, idx):
+            async with semaphore:
+                return await one_tool(session, text, idx)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout_obj) as session:
+            tasks = [with_sem(session, t, i) for i, t in enumerate(texts)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        out = [""] * len(texts)
+        for r in results:
+            if isinstance(r, Exception):
+                continue
+            i, s = r
+            if i < len(out):
+                out[i] = s
+        for i in range(len(out)):
+            if not out[i] and i < len(texts) and texts[i]:
+                out[i] = (texts[i][: (max_words * 6)] if texts[i] else "").strip()
+        return out
+
     async def evaluate_prompt_response_coherence(
         self,
         prompt: str,
@@ -815,6 +895,19 @@ class VLLMProvider:
         )
         return await provider.synthesize_batch(texts, max_words)
 
+    async def synthesize_tool_results_batch(self, texts: List[str], max_words: int = 30) -> List[str]:
+        """Synthesize tool result/error content using vLLM endpoint."""
+        provider = OpenAICompatibleProvider(
+            base_url=self.base_url,
+            api_key="",
+            model=self.model,
+            timeout=self.timeout,
+            max_tokens=self.max_tokens,
+            max_concurrent=self.max_concurrent,
+            verbose=self.verbose,
+        )
+        return await provider.synthesize_tool_results_batch(texts, max_words)
+
 
 class MultiProvider:
     """Provider that tries multiple providers in order with fallback."""
@@ -875,6 +968,26 @@ class MultiProvider:
         truncation = TruncationProvider()
         return await truncation.synthesize_batch(texts, max_words)
 
+    async def synthesize_tool_results_batch(self, texts: List[str], max_words: int = 30) -> List[str]:
+        """Try each provider in order until one succeeds for tool result synthesis."""
+        last_error = None
+        for i, provider in enumerate(self.providers):
+            try:
+                if hasattr(provider, "synthesize_tool_results_batch"):
+                    results = await provider.synthesize_tool_results_batch(texts, max_words)
+                else:
+                    results = await provider.synthesize_batch(texts, max_words)
+                if results and len(results) == len(texts):
+                    valid = [r for r in results if r and r.strip()]
+                    if len(valid) >= len(texts) * 0.8:
+                        return results
+                raise ValueError("Too many empty results")
+            except Exception as e:
+                last_error = e
+                continue
+        truncation = TruncationProvider()
+        return await truncation.synthesize_tool_results_batch(texts, max_words)
+
 
 def create_multi_provider_from_quality_config(quality_config: dict, verbose: bool = False) -> MultiProvider:
     """Create MultiProvider from quality level configuration.
@@ -900,8 +1013,14 @@ def create_multi_provider_from_quality_config(quality_config: dict, verbose: boo
                 # Fallback: leggi da variabile d'ambiente
                 api_key = os.environ.get("BF_TRACE_SYNTHESIS_API_KEY", "")
             
+            # 🔧 FIX: Leggi base_url da variabile d'ambiente prima del config.json
+            # Questo permette di usare domini diversi per dev/prod senza hardcode
+            base_url = os.environ.get("BF_TRACE_SYNTHESIS_BASE_URL")
+            if not base_url:
+                base_url = provider_config.get("base_url", "https://api.openai.com/v1")
+            
             providers.append(OpenAICompatibleProvider(
-                base_url=provider_config.get("base_url", "https://api.openai.com/v1"),
+                base_url=base_url,
                 api_key=api_key,
                 model=provider_config.get("model", "gpt-3.5-turbo"),
                 timeout=provider_config.get("timeout", 240.0),

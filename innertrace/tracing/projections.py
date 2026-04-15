@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .blob_store import BlobStore
 from .synthesis import SynthesisProvider, TruncationProvider
 
 # Configurazione sintesi
@@ -16,6 +17,12 @@ from .synthesis import SynthesisProvider, TruncationProvider
 # 500 token ≈ 375 parole (rapporto ~1.33 token/parola)
 # Usiamo 400 parole per essere generosi e permettere sintesi complete
 MAX_SYNTHESIS_WORDS = 400  # Allineato con max_tokens=500 (circa 375 parole, arrotondato a 400)
+# Preview risultati/errori tool in timeline (nessun troncamento oltre questo per leggibilità)
+TOOL_PREVIEW_MAX_CHARS = 500
+# Parole max per sintesi risultati/errori tool (quando synthesize=True, in pari passo con prompt/response)
+TOOL_SYNTHESIS_WORDS = 40
+# Messaggio eccezione in timeline (non troncare per debug)
+EXCEPTION_MESSAGE_MAX_CHARS = 2000
 
 # Whitelist of parameters to include in run.start signature
 # These are safe to display and useful for debugging
@@ -799,6 +806,11 @@ def timeline_view(
     if not events:
         return ["No events found for this run"]
 
+    # Blob store per preview risultati/errori tool (e per sintesi LLM se synthesize=True)
+    events_path_obj = Path(events_path)
+    blob_store_path = str(events_path_obj.parent / "blobs") if events_path_obj.name == "events.jsonl" else "traces/blobs"
+    blob_store = BlobStore(blob_store_path)
+
     # Build complete span map with hierarchy
     span_info = {}  # span_id -> {name, actor, kind, parent_span_id, start_ts, depth}
     span_depths = {}
@@ -893,17 +905,6 @@ def timeline_view(
     
     # Load extracts from blob store if synthesis is enabled (second pass: resolve component names)
     if synthesize:
-        from .blob_store import BlobStore
-        # Determine blob store path from events_path
-        events_path_obj = Path(events_path)
-        if events_path_obj.name == "events.jsonl":
-            # If events.jsonl, use parent/blobs
-            blob_store_path = str(events_path_obj.parent / "blobs")
-        else:
-            # Fallback: assume traces/blobs
-            blob_store_path = "traces/blobs"
-        blob_store = BlobStore(blob_store_path)
-        
         for key, data in llm_call_data.items():
             # 🔧 FIX: Estrai span_id dalla data (può essere None)
             span_id = data.get("span_id")
@@ -1228,10 +1229,42 @@ def timeline_view(
     # Check if we have any spans (for context resolution)
     has_spans = len(span_info) > 0
 
+    # Raccolta contenuti tool.call.end **solo result** per sintesi (stesso parametro synthesize di prompt/response).
+    # Gli errori non si sintetizzano: sono già corti o troncati a monte, la sintesi rischierebbe di allungarli.
+    tool_contents_for_synthesis = []
+    for event in events:
+        if event.get("type") != "tool.call.end":
+            continue
+        payload = event.get("payload", {})
+        if payload.get("status") != "ok":
+            continue
+        ref = payload.get("result_ref")
+        if not ref:
+            continue
+        try:
+            content = blob_store.get(ref)
+            tool_contents_for_synthesis.append(content or "")
+        except Exception:
+            tool_contents_for_synthesis.append("")
+    synthesized_tool_results = []
+    if synthesize and synthesis_provider and tool_contents_for_synthesis:
+        try:
+            synthesized_tool_results = asyncio.run(
+                synthesis_provider.synthesize_tool_results_batch(
+                    tool_contents_for_synthesis,
+                    max_words=TOOL_SYNTHESIS_WORDS,
+                )
+            )
+        except Exception as e:
+            logging.warning(f"[TIMELINE_VIEW] Tool result synthesis failed: {e}, using truncation")
+            synthesized_tool_results = []
+
     # Format timeline
     logging.debug(f"[TIMELINE_VIEW] Generazione output timeline...")
     lines = []
-    
+    # Header con run_id completo (nessun troncamento)
+    lines.append(f"Run ID: {run_id}")
+
     # Add synthesis fallback messages if verbose=True
     if verbose and fallback_messages:
         lines.append("# Synthesis Provider Fallback Log:")
@@ -1250,6 +1283,7 @@ def timeline_view(
 
     logging.debug(f"[TIMELINE_VIEW] Processando {len(events)} eventi per output...")
     event_count = 0
+    tool_call_end_idx = 0  # Indice per synthesized_tool_results (solo eventi con result_ref/error_ref)
     for event in events:
         event_count += 1
         if event_count <= 5 or event_count % 100 == 0:
@@ -1277,15 +1311,15 @@ def timeline_view(
         # Extract key details from payload
         details = ""
         if event_type == "run.start":
+            run_id_ev = event.get("run_id", "")
             entrypoint = payload.get('entrypoint', 'unknown')
             # Extract and format signature
             sig = extract_run_signature(payload)
             sig_str = format_run_signature(sig)
-            
             if sig_str:
-                details = f"({entrypoint}) {sig_str}"
+                details = f"run_id={run_id_ev} ({entrypoint}) {sig_str}"
             else:
-                details = f"({entrypoint})"
+                details = f"run_id={run_id_ev} ({entrypoint})"
         elif event_type == "run.end":
             status = payload.get('status', 'unknown')
             latency = payload.get('latency_ms', 0)
@@ -1293,7 +1327,8 @@ def timeline_view(
         elif event_type == "span.start":
             kind = payload.get('kind', 'unknown')
             name = payload.get('name', 'unknown')
-            details = f"[{kind}] {name}"
+            span_id_ev = event.get("span_id", "")
+            details = f"[{kind}] {name} span_id={span_id_ev}"
         elif event_type == "span.end":
             status = payload.get('status', 'ok')
             latency = payload.get('latency_ms', 0)
@@ -1617,16 +1652,50 @@ def timeline_view(
                                 details += f" | RESPONSE: {resp_preview}..."
         elif event_type == "tool.call.start":
             tool = payload.get('tool', 'unknown')
-            details = f"({tool})"
+            # Mostra i parametri se disponibili in args_preview
+            args_preview = payload.get('args_preview', {})
+            if args_preview and isinstance(args_preview, dict):
+                # Formatta i parametri in modo leggibile
+                args_str = ", ".join([f"{k}={repr(v)[:50]}" for k, v in list(args_preview.items())[:5]])
+                if args_str:
+                    details = f"({tool}, {args_str})"
+                else:
+                    details = f"({tool})"
+            else:
+                details = f"({tool})"
         elif event_type == "tool.call.end":
             tool = payload.get('tool', 'unknown')
             status = payload.get('status', 'ok')
             latency = payload.get('latency_ms', 0)
             details = f"({tool}, {status}, {latency}ms)"
+            # Preview: sintesi (se synthesize=True, in pari passo con prompt/response) o troncamento raw
+            if synthesize and tool_call_end_idx < len(synthesized_tool_results):
+                summary = synthesized_tool_results[tool_call_end_idx]
+                if summary:
+                    prefix = "error" if status != "ok" else "result"
+                    details += f" | {prefix}: {summary.replace(chr(10), ' ').strip()}"
+            else:
+                try:
+                    if status != "ok":
+                        error_ref = payload.get("error_ref")
+                        if error_ref:
+                            err_content = blob_store.get(error_ref)
+                            preview = err_content[:TOOL_PREVIEW_MAX_CHARS] if len(err_content) > TOOL_PREVIEW_MAX_CHARS else err_content
+                            details += f" | error: {preview.replace(chr(10), ' ').strip()}"
+                    else:
+                        result_ref = payload.get("result_ref")
+                        if result_ref:
+                            res_content = blob_store.get(result_ref)
+                            preview = res_content[:TOOL_PREVIEW_MAX_CHARS] if len(res_content) > TOOL_PREVIEW_MAX_CHARS else res_content
+                            details += f" | result: {preview.replace(chr(10), ' ').strip()}"
+                except Exception as e:
+                    details += f" | (blob load failed: {e})"
+            tool_call_end_idx += 1
         elif event_type == "exception":
             exc_type = payload.get('exc_type', 'Exception')
-            message = payload.get('message', '')[:50]
-            details = f"({exc_type}: {message})"
+            message = payload.get('message', '')
+            msg_preview = message[:EXCEPTION_MESSAGE_MAX_CHARS] if len(message) > EXCEPTION_MESSAGE_MAX_CHARS else message
+            details = f"({exc_type}: {msg_preview})"
         elif event_type == "router.decision":
             chosen = payload.get('chosen', 'unknown')
             details = f"(→ {chosen})"
@@ -1639,8 +1708,8 @@ def timeline_view(
     # Shows only LLM calls with context (useful for cost/performance analysis)
     # NOT suitable for root-cause analysis (use full view for that)
     if compact:
-        compact_lines = []
-        for line in lines:
+        compact_lines = [lines[0]]  # Header Run ID (sempre incluso)
+        for line in lines[1:]:
             # Include run boundaries and LLM calls only
             # Exclude function-level spans (use full view to see function traces)
             if ("run.start" in line or "run.end" in line or "llm.call" in line) and "[function]" not in line:

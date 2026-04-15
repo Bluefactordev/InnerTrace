@@ -359,7 +359,10 @@ Shows only LLM calls with component context. Useful for quick cost/performance o
 ```
 
 **Output format:**
-- Complete hierarchy with indentation
+- **Run ID and span IDs**: First line is `Run ID: <full_run_id>`; `run.start` and `span.start` include full `run_id` and `span_id` (no truncation) for copy-paste and correlation with `events.jsonl`.
+- **Hierarchy**: Complete hierarchy with indentation; tool calls are nested under the LLM span that requested them (relation tool ↔ model is visible from indentation).
+- **Tool calls**: For each `tool.call.end`, a preview of the result (on success) or error (on failure) is shown. When `--synthesize` is used, tool results/errors are **synthesized** with the same provider and quality as prompt/response (essential, concise summary; same flag). When synthesis is off, raw blob content is truncated (up to 500 chars).
+- **Exceptions**: Exception messages are shown in full (up to 2000 chars) for debugging.
 - Component context for LLM calls: `[meta_planner]`, `[code_orchestrator #2]`
 - Token count and duration on `llm.call.end`: `(7,295 tokens, 12.73s) [meta_planner]`
 - Semantic status on `span.end`: `(ok, 12.87s)` (aggregated, not per-call)
