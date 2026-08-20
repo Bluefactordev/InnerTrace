@@ -2,7 +2,7 @@
 
 ## Descrizione
 
-InnerTrace v0.2 è un sistema di tracing event-sourcing per l'orchestrazione LLM, organizzato come repository separato nella cartella `external/innertrace/`.
+InnerTrace v0.3 è un sistema di tracing event-sourcing per l'orchestrazione LLM, organizzato come repository separato nella cartella `external/innertrace/`.
 
 ## Architettura
 
@@ -79,6 +79,6 @@ Per i comandi Git completi per configurare e fare push del repository, consulta:
 
 ---
 
-**Versione**: InnerTrace v0.2  
+**Versione**: InnerTrace v0.3
 **Tipo**: Repository Git separato  
 **Posizione**: `external/innertrace/`

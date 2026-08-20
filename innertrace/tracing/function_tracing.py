@@ -120,6 +120,7 @@ def trace_function(
 
                     # Emit span.end
                     end_payload = {
+                        "kind": "function",
                         "status": status,
                         "latency_ms": int((time.time() - start_time) * 1000)
                     }
@@ -206,6 +207,7 @@ def trace_function(
 
                     # Emit span.end
                     end_payload = {
+                        "kind": "function",
                         "status": status,
                         "latency_ms": int((time.time() - start_time) * 1000)
                     }
@@ -304,6 +306,7 @@ def trace_block(name: str, payload: Optional[Dict[str, Any]] = None):
 
         # Emit span.end
         end_payload = {
+            "kind": "function",
             "status": status,
             "latency_ms": int((time.time() - start_time) * 1000)
         }
@@ -395,6 +398,7 @@ async def trace_block_async(name: str, payload: Optional[Dict[str, Any]] = None)
 
         # Emit span.end
         end_payload = {
+            "kind": "function",
             "status": status,
             "latency_ms": int((time.time() - start_time) * 1000)
         }

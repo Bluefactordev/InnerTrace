@@ -165,6 +165,9 @@ class Tracer:
             tags=[],
             payload=payload
         )
+        _run_id.set(None)
+        _span_stack.set([])
+        _span_kind_stack.set([])
 
     @contextmanager
     def span(self, name: str, actor: str, kind: str = "other", tags: Optional[List[str]] = None):
@@ -247,6 +250,7 @@ class Tracer:
                 level=level,
                 tags=tags,
                 payload={
+                    "kind": kind,
                     "status": status,
                     "latency_ms": latency_ms
                 }
@@ -423,6 +427,33 @@ class Tracer:
 
 
 # Helper functions for LLM calls
+def _json_safe_payload(value: Any, depth: int = 0, max_depth: int = 12) -> Any:
+    """Return a JSON-serializable copy suitable for trace blobs."""
+    if depth > max_depth:
+        return truncate_preview(str(value), 300)
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_payload(item, depth + 1, max_depth)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_payload(item, depth + 1, max_depth) for item in value]
+
+    try:
+        json.dumps(value)
+        return value
+    except Exception:
+        return str(value)
+
+
 def emit_llm_call_start(tracer: Tracer, model: str, prompt: Any, params: Optional[Dict] = None,
                         purpose: Optional[str] = None, actor: str = "llm"):
     """Emit llm.call.start event."""
@@ -477,7 +508,8 @@ def emit_llm_call_end(tracer: Tracer, response: Any, usage: Optional[Dict] = Non
         # Store tool call args in blobs
         processed_calls = []
         for tc in tool_calls:
-            args_ref = tracer.put_blob(tc.get("args", {}), "json")
+            safe_args = redact_payload(_json_safe_payload(tc.get("args", {})))
+            args_ref = tracer.put_blob(safe_args, "json")
             processed_calls.append({
                 "name": tc.get("name", "unknown"),
                 "args_ref": args_ref
@@ -489,14 +521,15 @@ def emit_llm_call_end(tracer: Tracer, response: Any, usage: Optional[Dict] = Non
 
 def emit_tool_call_start(tracer: Tracer, tool: str, args: Any, actor: str = "tool"):
     """Emit tool.call.start event."""
-    args_ref = tracer.put_blob(args, "json")
+    safe_args = redact_payload(_json_safe_payload(args))
+    args_ref = tracer.put_blob(safe_args, "json")
 
     # Create args preview (truncate if needed)
-    if isinstance(args, dict):
+    if isinstance(safe_args, dict):
         args_preview = {k: (str(v)[:100] + "..." if len(str(v)) > 100 else v)
-                       for k, v in list(args.items())[:5]}
+                       for k, v in list(safe_args.items())[:5]}
     else:
-        args_preview = truncate_preview(str(args), 200)
+        args_preview = truncate_preview(str(safe_args), 200)
 
     payload = {
         "tool": tool,
@@ -511,7 +544,8 @@ def emit_tool_call_end(tracer: Tracer, tool: str, result: Any, status: str = "ok
                        latency_ms: Optional[int] = None, error: Optional[str] = None,
                        actor: str = "tool"):
     """Emit tool.call.end event."""
-    result_ref = tracer.put_blob(result, "json" if isinstance(result, (dict, list)) else "txt")
+    safe_result = redact_payload(_json_safe_payload(result))
+    result_ref = tracer.put_blob(safe_result, "json" if isinstance(safe_result, (dict, list)) else "txt")
 
     payload = {
         "tool": tool,

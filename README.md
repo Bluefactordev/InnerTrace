@@ -1,7 +1,7 @@
-# InnerTrace v0.2: Event-Sourcing Tracing for LLM Orchestration
+# InnerTrace v0.3: Event-Sourcing Tracing for LLM Orchestration
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](https://github.com/bluefactor/InnerTrace)
+[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](https://github.com/Bluefactordev/InnerTrace)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 Structured tracing system for LLM orchestration with causal graph, deterministic projections, and **semantic storytelling layer**.
@@ -46,6 +46,14 @@ This is a **systems observability project** focused on:
 
 **Not about**: evaluation quality, fine-tuning, RAG quality, or custom evaluators.
 
+## What's New in v0.3
+
+- ✅ **Safe tool payload tracing** - Tool arguments, results, and LLM tool-call arguments are converted to JSON-safe values before blob storage
+- ✅ **Secret redaction for tool payloads** - Sensitive keys and token-like values are redacted before persistence and preview generation
+- ✅ **Incremental storytelling cursor** - Chat previews can return `total_events` and `last_event_index` to avoid replaying already loaded events
+- ✅ **Run/span lifecycle correctness** - Completed runs clear their context, and `span.end` events preserve the span kind
+- ✅ **Package-layout test compatibility** - The causality suite now uses the public `innertrace` package imports
+
 ## What's New in v0.2
 
 - ✅ **Function-level tracing** - Decorators `@trace_function`, `trace_module`, `trace_block` for automatic instrumentation
@@ -63,9 +71,9 @@ This is a **systems observability project** focused on:
 - ✅ **Blob-referenced content** - Large prompts/responses use blob store (no duplication)
 - ✅ **Linking not copying** - story.link references execution events via span_id
 
-## Stability Guarantees (v0.2)
+## Stability Guarantees (v0.3)
 
-The v0.1 API remains stable. New features in v0.2 are additive and backward compatible.
+The v0.1 API remains stable. New features in v0.2 and v0.3 are additive and backward compatible.
 
 ## Stability Guarantees (v0.1)
 

@@ -6,12 +6,10 @@ v0.1: Critical test for validating the projection layer architecture.
 """
 import json
 import tempfile
-import shutil
 from pathlib import Path
-from datetime import datetime
 
-from tracing import Tracer
-from utils.storytelling.story_projection import StoryProjector
+from innertrace import Tracer
+from innertrace.utils.storytelling.story_projection import StoryProjector
 
 
 def test_story_link_causality():

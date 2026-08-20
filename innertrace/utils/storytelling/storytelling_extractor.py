@@ -470,15 +470,11 @@ class StorytellingExtractor:
             avg_task_quality=avg_task_quality,
             execution_assessment=execution_assessment
         )
-    
-    def format_storytelling_for_chat(self, conversation_id: str, max_length: int = 2000) -> str:
-        """Formatta lo storytelling per la visualizzazione in chat"""
-        summary = self.extract_summary(conversation_id)
-        if not summary:
-            return "❌ Storytelling non disponibile per questa conversazione."
-        
+
+    def _render_chat_storytelling(self, summary: StorytellingSummary, max_length: int = 2000) -> str:
+        """Render the compact storytelling preview used by the chat UI."""
         output = []
-        output.append(f"🎭 **Storytelling Intelligente** - {conversation_id}")
+        output.append(f"🎭 **Storytelling Intelligente** - {summary.conversation_id}")
         output.append(f"📊 **Statistiche**: {summary.statistics['completed_tasks']} task completati, {summary.statistics['llm_calls']} chiamate LLM, {summary.duration_minutes:.1f} min")
 
         # 🆕 Aggiungi metriche qualitative
@@ -495,7 +491,7 @@ class StorytellingExtractor:
             for obj in summary.strategic_objectives[:3]:  # Limita a 3 per brevità
                 output.append(f"  🎯 {obj.get('id', 'N/A')}: {obj.get('title', 'N/A')}")
             output.append("")
-        
+
         # Task completati recenti
         if summary.completed_tasks:
             output.append("✅ **Task Completati** (ultimi 3):")
@@ -546,14 +542,42 @@ class StorytellingExtractor:
             if final_answer:
                 preview = final_answer[:200] + "..." if len(final_answer) > 200 else final_answer
                 output.append(f"  {preview}")
-        
+
         result = "\n".join(output)
-        
+
         # Tronca se troppo lungo
         if len(result) > max_length:
             result = result[:max_length] + "\n\n... (troncato per brevità)"
-        
+
         return result
+
+    def get_chat_storytelling_payload(self, conversation_id: str, max_length: int = 2000) -> Dict[str, Any]:
+        """
+        Return the compact storytelling preview together with the current event cursor.
+
+        The chat UI needs a baseline `last_event_index` to avoid re-polling the whole
+        storytelling history from index 0 after the initial preview has already been loaded.
+        """
+        summary = self.extract_summary(conversation_id)
+        if not summary:
+            return {
+                "storytelling": "❌ Storytelling non disponibile per questa conversazione.",
+                "total_events": 0,
+                "last_event_index": 0,
+            }
+
+        return {
+            "storytelling": self._render_chat_storytelling(summary, max_length=max_length),
+            "total_events": int(summary.total_events or 0),
+            "last_event_index": int(summary.total_events or 0),
+        }
+
+    def format_storytelling_for_chat(self, conversation_id: str, max_length: int = 2000) -> str:
+        """Formatta lo storytelling per la visualizzazione in chat"""
+        summary = self.extract_summary(conversation_id)
+        if not summary:
+            return "❌ Storytelling non disponibile per questa conversazione."
+        return self._render_chat_storytelling(summary, max_length=max_length)
     
     def format_storytelling_for_llm(self, conversation_id: str) -> str:
         """Formatta lo storytelling per l'uso da parte dei modelli LLM"""

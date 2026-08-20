@@ -263,6 +263,9 @@ def test_trace_module_wraps_only_local():
         def local_func2():
             return "local2"
 
+        local_func1.__module__ = "test_module"
+        local_func2.__module__ = "test_module"
+
         # Imported function (different module)
         def imported_func():
             return "imported"
@@ -300,6 +303,10 @@ def test_trace_module_respects_include_exclude():
 
     def special_handler():
         return "special"
+
+    public_function.__module__ = "test_module"
+    _private_function.__module__ = "test_module"
+    special_handler.__module__ = "test_module"
 
     module_globals["public_function"] = public_function
     module_globals["_private_function"] = _private_function
