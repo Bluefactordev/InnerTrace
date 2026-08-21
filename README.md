@@ -5,9 +5,9 @@ exceptions that led an LLM or agent to its result—from a local append-only tra
 
 [![CI](https://github.com/Bluefactordev/InnerTrace/actions/workflows/ci.yml/badge.svg)](https://github.com/Bluefactordev/InnerTrace/actions/workflows/ci.yml)
 [![Python 3.9–3.12](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/LICENSE)
 
-![A real InnerTrace timeline showing a stale-cache branch, its exception, retry, and corrected result](docs/assets/agent-failure-demo.png)
+![A real InnerTrace timeline showing a stale-cache branch, its exception, retry, and corrected result](https://raw.githubusercontent.com/Bluefactordev/InnerTrace/616d0f3b6ed31d8a5bbfabdac30d9304dc2a7f88/docs/assets/agent-failure-demo.png)
 
 In this demo an inventory agent first answers from stale data. InnerTrace shows
 why the router chose that source, the tool result it received, the failing
@@ -15,13 +15,11 @@ branch, the retry, and the corrected final answer.
 
 ## Quick Start
 
-InnerTrace is not published on PyPI yet. Install it from the repository:
+Install InnerTrace 0.3.1 and run its offline demo:
 
 ```bash
-git clone https://github.com/Bluefactordev/InnerTrace.git
-cd InnerTrace
-python -m pip install .
-python examples/agent_failure_demo.py
+python -m pip install innertrace==0.3.1
+innertrace demo
 innertrace --events-path demo_output/traces/events.jsonl timeline --last
 ```
 
@@ -37,16 +35,16 @@ HTML demo: .../demo_output/agent-failure.html
 Final result: CHAIR-42 has 7 units (source: inventory.primary)
 ```
 
-Read the [usage and integration guide](docs/guide.md), the
-[event and storage contract](docs/event-format.md), or the
-[0.3 changelog](CHANGELOG.md).
+Read the [usage and integration guide](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/docs/guide.md), the
+[event and storage contract](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/docs/event-format.md), or the
+[0.3 changelog](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/CHANGELOG.md).
 
 ## When InnerTrace is useful
 
 Use InnerTrace when the final agent response does not explain what actually
 happened: which route was selected, which tool returned a misleading value,
 where an exception occurred, or whether a retry changed the outcome. It is a
-small fit for local development, reproducible bug reports, incident analysis,
+good fit for local development, reproducible bug reports, incident analysis,
 and applications that need filesystem-owned trace data.
 
 It is not an evaluator, prompt optimizer, or hosted monitoring service. It does
@@ -151,7 +149,7 @@ The established vocabulary includes:
 | Sandboxes | `sandbox.exec.start`, `sandbox.exec.end`, `code_execution_error` |
 | Story | `story.phase.start`, `story.phase.end`, `story.objective`, `story.task`, `story.link` |
 
-InnerTrace 0.3 preserves the 0.2 public imports, event names, JSONL records,
+InnerTrace 0.3.1 preserves the 0.2 public imports, event names, JSONL records,
 blob references, projections, function tracing, and storytelling APIs. The
 `story.quality.*` events and optional synthesis settings remain experimental.
 
@@ -189,6 +187,6 @@ python -m build
 python -m twine check dist/*
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before changing event or storage
-contracts. Source and wheel installation are supported today; PyPI publication,
-release creation, and signing remain explicit release-gate actions.
+See [CONTRIBUTING.md](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/CONTRIBUTING.md)
+before changing event or storage contracts. Release publication and signing
+remain explicit release-gate actions.

@@ -2,7 +2,7 @@
 
 All notable InnerTrace changes are documented here.
 
-## Unreleased
+## 0.3.1 — 2026-08-21
 
 ### OSS readiness
 
@@ -14,8 +14,11 @@ All notable InnerTrace changes are documented here.
   wheel; added clean-environment distribution smoke tests.
 - Added Python 3.9–3.12 CI, contribution guidance, and public-path tests.
 - Consolidated internal setup notes into project documentation.
-
-These changes are not a PyPI publication, tag, or GitHub release.
+- Added the installed `innertrace demo` command with deterministic offline trace
+  and HTML output.
+- Moved synthesis configuration to user-owned paths, retained a deprecated
+  package-local compatibility fallback, and made no-config synthesis use the
+  offline truncation provider.
 
 ## 0.3.0 — 2026-08-20
 

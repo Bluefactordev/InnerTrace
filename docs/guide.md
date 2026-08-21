@@ -4,12 +4,12 @@ This guide covers the supported package paths beyond the README Quick Start.
 
 ## Install
 
-Until a PyPI publication is approved, install from a checkout or a built wheel:
+Install the released package or a locally built wheel:
 
 ```bash
-python -m pip install .
+python -m pip install innertrace==0.3.1
 # or
-python -m pip install dist/innertrace-0.3.0-py3-none-any.whl
+python -m pip install dist/innertrace-0.3.1-py3-none-any.whl
 ```
 
 For development, use `python -m pip install -e '.[dev]'`.
@@ -128,7 +128,9 @@ The included `low` example uses only the offline truncation provider. External
 providers are optional and belong in user-owned configuration, never committed
 credentials. `INNERTRACE_CONFIG_PATH` and `INNERTRACE_ENV_PATH` can point to
 other files. Install `.[synthesis]` only when an HTTP synthesis provider is
-needed.
+needed. Without a configuration file, `--synthesize` uses deterministic offline
+truncation. See the [0.3.1 synthesis migration](synthesis-migration.md) for
+precedence, compatibility, and deprecation details.
 
 ## Storytelling layer
 

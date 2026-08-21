@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_version_and_templates_are_public_resources():
-    assert __version__ == "0.3.0"
+    assert __version__ == "0.3.1"
     assert version("innertrace") == __version__
     assert template_names() == ("index.html", "runs.html", "timeline.html")
 

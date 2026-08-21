@@ -121,7 +121,7 @@ class OpenAICompatibleProvider:
         except ImportError:
             logging.error(
                 "aiohttp is required for OpenAI-compatible synthesis. "
-                "Install with: pip install 'bf-trace[synthesis]'"
+                "Install with: pip install 'innertrace[synthesis]'"
             )
             # Fallback to truncation
             return [text[:100] if text else "" for text in texts]

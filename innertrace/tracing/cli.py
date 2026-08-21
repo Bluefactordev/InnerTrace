@@ -7,11 +7,7 @@ import sys
 from pathlib import Path
 
 from .blob_store import BlobStore
-from .synthesis import (
-    get_synthesis_provider, 
-    TruncationProvider,
-    create_multi_provider_from_quality_config
-)
+from .synthesis import TruncationProvider, create_multi_provider_from_quality_config
 from .projections import (
     compact_run_view,
     failure_context_view,
@@ -24,7 +20,7 @@ from .projections import (
 
 
 def _configuration_path(filename: str, env_name: str) -> Path:
-    """Resolve user configuration while preserving the legacy package path."""
+    """Resolve user configuration while preserving the deprecated package path."""
 
     configured_path = os.environ.get(env_name)
     if configured_path:
@@ -37,10 +33,22 @@ def _configuration_path(filename: str, env_name: str) -> Path:
     return Path(__file__).parent / filename
 
 
+def _warn_legacy_configuration(path: Path, filename: str) -> None:
+    legacy_path = Path(__file__).parent / filename
+    if path == legacy_path and path.exists():
+        print(
+            f"Warning: package-local synthesis configuration at {path} is "
+            f"deprecated; move it to {Path.cwd() / '.innertrace' / filename} "
+            "or set the corresponding INNERTRACE_*_PATH variable.",
+            file=sys.stderr,
+        )
+
+
 def load_config():
     """Load optional synthesis configuration."""
     config_path = _configuration_path("config.json", "INNERTRACE_CONFIG_PATH")
     if config_path.exists():
+        _warn_legacy_configuration(config_path, "config.json")
         try:
             with open(config_path, "r") as f:
                 return json.load(f)
@@ -53,6 +61,7 @@ def load_env_file():
     """Load optional synthesis environment values without replacing process values."""
     env_path = _configuration_path(".env", "INNERTRACE_ENV_PATH")
     if env_path.exists():
+        _warn_legacy_configuration(env_path, ".env")
         try:
             with open(env_path, "r") as f:
                 for line in f:
@@ -247,37 +256,52 @@ def cmd_timeline(args):
         if not quality:
             quality = "high"
         
-        # Check if external configuration is specified and use its quality
-        if not quality and config and "external" in config:
-            external_config = config.get("external", {})
-            quality = external_config.get("quality")
-        
         if quality not in ["low", "medium", "high", "highest"]:
             print(f"Warning: Invalid quality '{quality}', using 'high'", file=sys.stderr)
             quality = "high"
-        
-        # Nuova struttura config: quality_levels con provider multipli
-        if not config or "quality_levels" not in config or quality not in config.get("quality_levels", {}):
+
+        if not config:
+            print(
+                "No synthesis configuration found; using the offline "
+                "truncation provider.",
+                file=sys.stderr,
+            )
+            synthesis_provider = TruncationProvider()
+        elif "quality_levels" not in config or quality not in config.get("quality_levels", {}):
             print(
                 f"Error: No configuration found for quality '{quality}'.\n"
                 f"Configure providers in .innertrace/config.json under 'quality_levels' -> '{quality}' -> 'providers'",
                 file=sys.stderr,
             )
             sys.exit(1)
-            
-        quality_config = config["quality_levels"][quality]
-        verbose = getattr(args, 'verbose', False)
-        print(f"Using quality level '{quality}' with {len(quality_config.get('providers', []))} provider(s) configured", file=sys.stderr)
-        # verbose e callback verranno impostati in timeline_view prima di chiamare synthesize_batch
-        synthesis_provider = create_multi_provider_from_quality_config(quality_config, verbose=verbose)
+        else:
+            quality_config = config["quality_levels"][quality]
+            verbose = getattr(args, 'verbose', False)
+            print(f"Using quality level '{quality}' with {len(quality_config.get('providers', []))} provider(s) configured", file=sys.stderr)
+            synthesis_provider = create_multi_provider_from_quality_config(quality_config, verbose=verbose)
 
     lines = timeline_view(
-        run_id, args.events_path, compact=args.compact, synthesize=args.synthesize, 
+        run_id, args.events_path, compact=args.compact, synthesize=args.synthesize,
         synthesis_provider=synthesis_provider, verbose=getattr(args, 'verbose', False)
     )
 
     for line in lines:
         print(line)
+
+
+def cmd_demo(args):
+    """Run the packaged deterministic demo."""
+
+    from innertrace.demo import main as demo_main
+
+    demo_args = ["--output-dir", str(args.output_dir)]
+    if args.html:
+        demo_args.extend(["--html", str(args.html)])
+    if args.screenshot:
+        demo_args.extend(["--screenshot", str(args.screenshot)])
+    status = demo_main(demo_args)
+    if status:
+        raise SystemExit(status)
 
 
 def main():
@@ -343,6 +367,29 @@ def main():
     parser_blob.add_argument("--ref", required=True, help="Blob reference (e.g., blob:sha256:<hash>)")
     parser_blob.set_defaults(func=cmd_blob)
 
+    # deterministic offline demo
+    parser_demo = subparsers.add_parser(
+        "demo",
+        help="Generate an offline failure/retry trace and HTML timeline",
+    )
+    parser_demo.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("demo_output"),
+        help="Trace output directory (default: demo_output)",
+    )
+    parser_demo.add_argument(
+        "--html",
+        type=Path,
+        help="HTML destination (default: <output-dir>/agent-failure.html)",
+    )
+    parser_demo.add_argument(
+        "--screenshot",
+        type=Path,
+        help="Optional PNG destination captured from the generated HTML",
+    )
+    parser_demo.set_defaults(func=cmd_demo)
+
     # timeline command (enterprise-level debug view)
     parser_timeline = subparsers.add_parser("timeline", help="View timeline with human-readable timestamps")
     parser_timeline.add_argument("--run-id", help="Run ID (optional if using --last)")
@@ -362,8 +409,8 @@ def main():
     parser_timeline.add_argument(
         "--quality",
         choices=["low", "medium", "high", "highest"],
-        default="high",
-        help="Quality level for synthesis. Models and providers are configured in .innertrace/config.json.",
+        default=None,
+        help="Quality level for synthesis (default: config default_quality, then high).",
     )
     parser_timeline.add_argument(
         "--verbose",

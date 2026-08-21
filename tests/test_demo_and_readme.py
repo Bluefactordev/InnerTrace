@@ -1,35 +1,48 @@
-import importlib.util
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
+
+from innertrace import demo
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_demo_module():
-    path = ROOT / "examples" / "agent_failure_demo.py"
-    spec = importlib.util.spec_from_file_location("agent_failure_demo", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def _semantic_events(path: Path):
+    ignored_payload_keys = {"args_ref", "duration_ms"}
+    return [
+        {
+            "type": event["type"],
+            "actor": event.get("actor"),
+            "level": event.get("level"),
+            "tags": event.get("tags"),
+            "payload": {
+                key: value
+                for key, value in event.get("payload", {}).items()
+                if key not in ignored_payload_keys and not key.endswith("_ref")
+            },
+        }
+        for event in (
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        )
+    ]
 
 
 def test_readme_uses_installable_public_paths():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "from innertrace import Tracer" in readme
-    assert "python examples/agent_failure_demo.py" in readme
+    assert "python -m pip install innertrace==0.3.1" in readme
+    assert "innertrace demo" in readme
     assert "innertrace --events-path" in readme
-    assert "pip install innertrace" not in readme
     assert "from tracing" not in readme
     assert "./trace" not in readme
+    assert "small fit" not in readme
 
 
 def test_offline_demo_records_failure_retry_and_final_result(tmp_path):
-    demo = _load_demo_module()
     result = demo.run_demo(tmp_path)
 
     events = [
@@ -60,3 +73,53 @@ def test_offline_demo_records_failure_retry_and_final_result(tmp_path):
     assert 'id="innertrace-demo-data"' in html
     assert "StaleInventoryError" in html
     assert "inventory.primary.lookup" in html
+
+
+def test_demo_semantics_are_deterministic(tmp_path):
+    first = demo.run_demo(tmp_path / "first")
+    second = demo.run_demo(tmp_path / "second")
+
+    assert _semantic_events(first.events_path) == _semantic_events(second.events_path)
+    assert first.final_result == second.final_result
+
+
+def test_installed_cli_demo_path(tmp_path):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT)
+    output_dir = tmp_path / "cli-demo"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "innertrace.tracing.cli",
+            "demo",
+            "--output-dir",
+            str(output_dir),
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Final result: CHAIR-42 has 7 units" in result.stdout
+    assert (output_dir / "traces" / "events.jsonl").is_file()
+    assert (output_dir / "agent-failure.html").is_file()
+
+
+def test_demo_screenshot_error_is_clear(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(demo.shutil, "which", lambda executable: None)
+
+    status = demo.main(
+        [
+            "--output-dir",
+            str(tmp_path),
+            "--screenshot",
+            str(tmp_path / "demo.png"),
+        ]
+    )
+
+    assert status == 1
+    assert "InnerTrace demo failed: No Chromium browser found" in capsys.readouterr().err

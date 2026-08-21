@@ -10,7 +10,7 @@ from .tracing.function_tracing import (
 )
 from .resources import get_template_text, template_names
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "Tracer",
