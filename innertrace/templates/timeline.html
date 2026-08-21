@@ -10,20 +10,20 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             background-color: #0d1117;
             color: #e0e0e0;
             line-height: 1.5;
         }
-        
+
         .container {
             max-width: 1600px;
             margin: 0 auto;
             padding: 20px;
         }
-        
+
         .toolbar {
             background: #1a1a2e;
             padding: 15px 20px;
@@ -34,20 +34,20 @@
             flex-wrap: wrap;
             align-items: center;
         }
-        
+
         .toolbar-group {
             display: flex;
             gap: 10px;
             align-items: center;
         }
-        
+
         .toolbar-label {
             color: #a0a0a0;
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
-        
+
         select, input {
             background: #2d2d3a;
             color: #e0e0e0;
@@ -57,12 +57,12 @@
             font-family: inherit;
             font-size: 14px;
         }
-        
+
         select:focus, input:focus {
             outline: none;
             border-color: #667eea;
         }
-        
+
         .btn {
             background: #667eea;
             color: white;
@@ -74,26 +74,26 @@
             font-size: 14px;
             transition: all 0.2s;
         }
-        
+
         .btn:hover {
             background: #764ba2;
         }
-        
+
         .btn-secondary {
             background: #4a5568;
         }
-        
+
         .btn-secondary:hover {
             background: #6366f1;
         }
-        
+
         .timeline-container {
             background: #1a1a2e;
             border-radius: 8px;
             padding: 20px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         }
-        
+
         .timeline-header {
             display: flex;
             justify-content: space-between;
@@ -102,18 +102,18 @@
             padding-bottom: 15px;
             border-bottom: 1px solid #3d3d3d;
         }
-        
+
         .timeline-title {
             color: #667eea;
             font-size: 18px;
             font-weight: 600;
         }
-        
+
         .timeline-info {
             color: #a0a0a0;
             font-size: 12px;
         }
-        
+
         .timeline-content {
             background: #0d1117;
             border-radius: 4px;
@@ -123,68 +123,68 @@
             font-size: 13px;
             line-height: 1.6;
         }
-        
+
         .timeline-line {
             padding: 2px 0;
             border-bottom: 1px solid #1f2937;
         }
-        
+
         .timeline-line:last-child {
             border-bottom: none;
         }
-        
+
         .timestamp {
             color: #fbbf24;
             font-weight: 600;
         }
-        
+
         .event-type {
             color: #61dafb;
             font-weight: 600;
         }
-        
+
         .event-run-start {
             color: #4ade80;
             font-weight: 700;
         }
-        
+
         .event-run-end {
             color: #f87171;
             font-weight: 700;
         }
-        
+
         .event-span-start {
             color: #a78bfa;
             font-weight: 600;
         }
-        
+
         .event-span-end {
             color: #a78bfa;
             font-weight: 600;
         }
-        
+
         .event-llm {
             color: #667eea;
             font-weight: 700;
         }
-        
+
         .event-tool {
             color: #fbbf24;
             font-weight: 600;
         }
-        
+
         .event-exception {
             color: #f87171;
             font-weight: 700;
             background: rgba(248, 113, 113, 0.1);
         }
-        
+
         .loading {
             text-align: center;
             padding: 40px;
             color: #a0a0a0;
         }
-        
+
         .spinner {
             border: 3px solid #667eea;
             border-left-color: transparent;
@@ -194,12 +194,12 @@
             animation: spin 1s linear infinite;
             margin: 0 auto 15px;
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         .error {
             background: #3d1f2d;
             border: 1px solid #f87171;
@@ -208,18 +208,18 @@
             border-radius: 6px;
             margin: 20px 0;
         }
-        
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
             color: #a0a0a0;
         }
-        
+
         .empty-state-icon {
             font-size: 48px;
             margin-bottom: 15px;
         }
-        
+
         .search-highlight {
             background: #fbbf24;
             color: #0d1117;
@@ -238,7 +238,7 @@
                     <option value="">Select a run...</option>
                 </select>
             </div>
-            
+
             <div class="toolbar-group">
                 <label class="toolbar-label">View Mode:</label>
                 <select id="viewMode">
@@ -246,7 +246,7 @@
                     <option value="compact">Compact (LLM only)</option>
                 </select>
             </div>
-            
+
             <div class="toolbar-group">
                 <label class="toolbar-label">Synthesis:</label>
                 <select id="synthesisMode">
@@ -254,7 +254,7 @@
                     <option value="true">Enabled</option>
                 </select>
             </div>
-            
+
             <div class="toolbar-group">
                 <label class="toolbar-label">Quality:</label>
                 <select id="qualityMode">
@@ -263,13 +263,13 @@
                     <option value="low">Low</option>
                 </select>
             </div>
-            
+
             <div class="toolbar-group">
                 <button class="btn" onclick="loadTimeline()">Load Timeline</button>
                 <button class="btn btn-secondary" onclick="loadLastRun()">Last Run</button>
             </div>
         </div>
-        
+
         <div class="timeline-container">
             <div class="timeline-header">
                 <div>
@@ -289,11 +289,11 @@
             </div>
         </div>
     </div>
-    
+
     <script>
         let currentRunId = null;
         let currentTimeline = [];
-        
+
         function getEmbeddedDemo() {
             const element = document.getElementById('innertrace-demo-data');
             if (!element) return null;
@@ -311,7 +311,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadRuns();
         });
-        
+
         async function loadRuns() {
             const select = document.getElementById('runSelect');
             const embedded = getEmbeddedDemo();
@@ -327,14 +327,14 @@
                 renderTimeline(embedded.timeline);
                 return;
             }
-            
+
             try {
                 const response = await fetch('/api/innertrace/runs');
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     select.innerHTML = '<option value="">Select a run...</option>';
-                    
+
                     data.data.forEach(run => {
                         const option = document.createElement('option');
                         option.value = run.run_id;
@@ -344,7 +344,7 @@
                         }
                         select.appendChild(option);
                     });
-                    
+
                     // Auto-select last run if available
                     if (data.data.length > 0) {
                         select.value = data.data[0].run_id;
@@ -356,18 +356,18 @@
                 select.innerHTML = '<option value="">Error loading runs</option>';
             }
         }
-        
+
         async function loadTimeline() {
             const runId = document.getElementById('runSelect').value;
             const viewMode = document.getElementById('viewMode').value;
             const synthesis = document.getElementById('synthesisMode').value;
             const quality = document.getElementById('qualityMode').value;
-            
+
             if (!runId) {
                 alert('Please select a run ID');
                 return;
             }
-            
+
             currentRunId = runId;
 
             const embedded = getEmbeddedDemo();
@@ -376,10 +376,10 @@
                 renderTimeline(embedded.timeline);
                 return;
             }
-            
+
             const content = document.getElementById('timelineContent');
             content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading timeline...</p></div>';
-            
+
             try {
                 let url = `/api/innertrace/timeline/${runId}`;
                 const params = new URLSearchParams();
@@ -388,14 +388,14 @@
                     params.append('synthesize', 'true');
                     params.append('quality', quality);
                 }
-                
+
                 if (params.toString()) {
                     url += '?' + params.toString();
                 }
-                
+
                 const response = await fetch(url);
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     currentTimeline = data.data.timeline;
                     renderTimeline(data.data);
@@ -406,7 +406,7 @@
                 content.innerHTML = `<div class="error">Failed to load timeline: ${error.message}</div>`;
             }
         }
-        
+
         async function loadLastRun() {
             const embedded = getEmbeddedDemo();
             if (embedded) {
@@ -420,7 +420,7 @@
             try {
                 const response = await fetch('/api/innertrace/last-run');
                 const data = await response.json();
-                
+
                 if (data.status === 'success' && data.data) {
                     document.getElementById('runSelect').value = data.data.run_id;
                     loadTimeline();
@@ -431,25 +431,25 @@
                 alert('Failed to load last run: ' + error.message);
             }
         }
-        
+
         function renderTimeline(data) {
             const content = document.getElementById('timelineContent');
             const title = document.getElementById('timelineTitle');
             const info = document.getElementById('timelineInfo');
-            
+
             // Update header info
             title.textContent = `Timeline: ${data.run_id.substring(0, 20)}...`;
             info.textContent = data.compact ? 'Compact view' : 'Full view';
-            
+
             if (data.synthesize) {
                 info.textContent += ' | Synthesis enabled';
             }
-            
+
             // Render timeline lines
             const lines = data.timeline.map(line => {
                 let className = 'timeline-line';
                 let styledLine = line;
-                
+
                 // Add syntax highlighting
                 if (line.includes('run.start')) {
                     className += ' event-run-start';
@@ -466,31 +466,31 @@
                 } else if (line.includes('exception')) {
                     className += ' event-exception';
                 }
-                
+
                 // Highlight timestamps
                 styledLine = styledLine.replace(
                     /\[\d{2}:\d{2}:\d{2}\.\d{3}\]/g,
                     '<span class="timestamp">$&</span>'
                 );
-                
+
                 // Highlight event types
                 styledLine = styledLine.replace(
                     /(run\.(start|end)|span\.(start|end)|llm\.call\.(start|end)|tool\.call\.(start|end)|exception)/g,
                     '<span class="event-type">$1</span>'
                 );
-                
+
                 return `<div class="${className}">${styledLine}</div>`;
             });
-            
+
             content.innerHTML = lines.join('');
         }
-        
+
         function copyTimeline() {
             if (currentTimeline.length === 0) {
                 alert('No timeline loaded');
                 return;
             }
-            
+
             const text = currentTimeline.join('\n');
             navigator.clipboard.writeText(text).then(() => {
                 alert('Timeline copied to clipboard!');
@@ -498,13 +498,13 @@
                 alert('Failed to copy: ' + err.message);
             });
         }
-        
+
         function downloadTimeline() {
             if (currentTimeline.length === 0) {
                 alert('No timeline loaded');
                 return;
             }
-            
+
             const text = currentTimeline.join('\n');
             const blob = new Blob([text], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
