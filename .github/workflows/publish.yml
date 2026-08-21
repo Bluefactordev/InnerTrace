@@ -1,11 +1,6 @@
 name: Publish distributions
 
 on:
-  # Bootstrap TestPyPI before this workflow reaches the default branch. This
-  # branch-only trigger is removed after the release candidate is verified.
-  push:
-    branches:
-      - codex/innertrace-star-readiness
   workflow_dispatch:
     inputs:
       target:
@@ -25,7 +20,7 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'push' || inputs.target == 'testpypi'
+    if: inputs.target == 'testpypi'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,15 +40,13 @@ jobs:
   publish:
     if: >-
       always() &&
-      (((github.event_name == 'push' || inputs.target == 'testpypi') &&
-        needs.build.result == 'success') ||
-       (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi' &&
-        inputs.source_run_id != ''))
+      ((inputs.target == 'testpypi' && needs.build.result == 'success') ||
+       (inputs.target == 'pypi' && inputs.source_run_id != ''))
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event_name == 'push' && 'testpypi' || inputs.target }}
-      url: ${{ (github.event_name == 'push' || inputs.target == 'testpypi') && 'https://test.pypi.org/p/innertrace' || 'https://pypi.org/p/innertrace' }}
+      name: ${{ inputs.target }}
+      url: ${{ inputs.target == 'testpypi' && 'https://test.pypi.org/p/innertrace' || 'https://pypi.org/p/innertrace' }}
     permissions:
       actions: read
       id-token: write
@@ -63,14 +56,14 @@ jobs:
         with:
           name: release-dist
           path: dist
-          run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'pypi' && inputs.source_run_id || github.run_id }}
+          run-id: ${{ inputs.target == 'pypi' && inputs.source_run_id || github.run_id }}
           github-token: ${{ github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Validate distributions and release tag
         env:
-          PUBLISH_TARGET: ${{ github.event_name == 'push' && 'testpypi' || inputs.target }}
+          PUBLISH_TARGET: ${{ inputs.target }}
           RELEASE_REF: ${{ github.ref_name }}
         run: |
           python -m pip install --upgrade twine
@@ -95,4 +88,4 @@ jobs:
       - name: Publish exact verified distributions
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: ${{ (github.event_name == 'push' || inputs.target == 'testpypi') && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
+          repository-url: ${{ inputs.target == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
