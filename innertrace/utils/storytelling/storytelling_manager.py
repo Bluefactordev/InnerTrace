@@ -11,7 +11,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 if TYPE_CHECKING:
-    from tracing import Tracer
+    from innertrace import Tracer
 
 logger = logging.getLogger(__name__)
 

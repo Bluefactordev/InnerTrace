@@ -6,13 +6,13 @@ This demonstrates a complete traced run with LLM calls, tool calls, and router d
 
 import asyncio
 import time
-from tracing import get_tracer
-from tracing.integration import (
+from . import get_tracer
+from .integration import (
     start_traced_run,
     end_traced_run,
     trace_router_decision,
 )
-from tracing.tracer import (
+from .tracer import (
     emit_llm_call_start,
     emit_llm_call_end,
     emit_tool_call_start,
@@ -189,7 +189,7 @@ print(get_capital())
         print(f"\n✅ Run completed successfully in {latency_ms}ms")
         print(f"   Run ID: {run_id}")
         print(f"\n📊 View trace with:")
-        print(f"   ./trace view run --run-id {run_id}")
+        print(f"   innertrace view run --run-id {run_id}")
         print(f"\n📁 Events written to: traces/events.jsonl")
         print(f"📦 Blobs stored in: traces/blobs/sha256/")
 
@@ -233,7 +233,7 @@ async def example_with_error():
         print(f"\n❌ Run failed as expected: {e}")
         print(f"   Run ID: {run_id}")
         print(f"\n📊 View failure context with:")
-        print(f"   ./trace view failure --run-id {run_id}")
+        print(f"   innertrace view failure --run-id {run_id}")
 
 
 async def main():
@@ -261,9 +261,9 @@ async def main():
     print("Examples completed!")
     print("=" * 60)
     print("\nNext steps:")
-    print("1. List runs:     ./trace ls-runs")
-    print("2. View run:      ./trace view run --run-id <run_id>")
-    print("3. View failure:  ./trace view failure --run-id <run_id>")
+    print("1. List runs:     innertrace ls-runs")
+    print("2. View run:      innertrace view run --run-id <run_id>")
+    print("3. View failure:  innertrace view failure --run-id <run_id>")
     print("4. View events:   cat traces/events.jsonl | python -m json.tool")
     print("5. List blobs:    ls -lh traces/blobs/sha256/")
     print()

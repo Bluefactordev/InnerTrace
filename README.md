@@ -1,927 +1,193 @@
-# InnerTrace v0.3: Event-Sourcing Tracing for LLM Orchestration
+# Debug the agent run, not just the final error
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](https://github.com/Bluefactordev/InnerTrace)
-[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+InnerTrace reconstructs the decisions, tool calls, causal branches, retries, and
+exceptions that led an LLM or agent to its result—from a local append-only trace.
 
-Structured tracing system for LLM orchestration with causal graph, deterministic projections, and **semantic storytelling layer**.
+[![CI](https://github.com/Bluefactordev/InnerTrace/actions/workflows/ci.yml/badge.svg)](https://github.com/Bluefactordev/InnerTrace/actions/workflows/ci.yml)
+[![Python 3.9–3.12](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/LICENSE)
+
+![A real InnerTrace timeline showing a stale-cache branch, its exception, retry, and corrected result](https://raw.githubusercontent.com/Bluefactordev/InnerTrace/616d0f3b6ed31d8a5bbfabdac30d9304dc2a7f88/docs/assets/agent-failure-demo.png)
+
+In this demo an inventory agent first answers from stale data. InnerTrace shows
+why the router chose that source, the tool result it received, the failing
+branch, the retry, and the corrected final answer.
 
 ## Quick Start
 
-InnerTrace is a Python package for tracing LLM orchestration. Install it in your project:
+Install the InnerTrace 0.3.1 release candidate and run its offline demo:
 
 ```bash
-pip install -e .
+python -m pip install "innertrace @ git+https://github.com/Bluefactordev/InnerTrace.git@codex/innertrace-star-readiness"
+innertrace demo
+innertrace --events-path demo_output/traces/events.jsonl timeline --last
 ```
 
-Then integrate it into your application:
+The demo scenario and final result are deterministic, offline, and need no API
+key. Run IDs and timestamps are generated afresh. It writes a real
+`events.jsonl`, content-addressed blobs, and a self-contained HTML timeline.
+Expect output shaped like this:
+
+```text
+Run ID: <generated-run-id>
+Trace: .../demo_output/traces/events.jsonl
+HTML demo: .../demo_output/agent-failure.html
+Final result: CHAIR-42 has 7 units (source: inventory.primary)
+```
+
+Read the [usage and integration guide](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/docs/guide.md), the
+[event and storage contract](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/docs/event-format.md), or the
+[0.3 changelog](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/CHANGELOG.md).
+
+## When InnerTrace is useful
+
+Use InnerTrace when the final agent response does not explain what actually
+happened: which route was selected, which tool returned a misleading value,
+where an exception occurred, or whether a retry changed the outcome. It is a
+good fit for local development, reproducible bug reports, incident analysis,
+and applications that need filesystem-owned trace data.
+
+It is not an evaluator, prompt optimizer, or hosted monitoring service. It does
+not decide whether an answer is good; it records execution facts and derives
+read-only views from them.
+
+## How it differs
+
+- **Application logs** remain useful for free-form messages and operational
+  context. InnerTrace adds run/span causality plus agent-specific events and can
+  be used alongside normal logging.
+- **OpenTelemetry** is a broad telemetry standard and ecosystem. InnerTrace is
+  a focused local JSONL/blob format with deterministic agent-run projections;
+  it is not a collector, exporter, or universal replacement for OpenTelemetry.
+- **Hosted LLM observability platforms** may provide managed dashboards,
+  collaboration, evaluation, and retention. InnerTrace keeps its core path
+  local and account-free. Choose or combine them according to your operational
+  needs.
+
+## Add tracing to an agent
+
+All imports below are part of the installed `innertrace` package:
 
 ```python
-from innertrace import get_tracer
-
-tracer = get_tracer()
-run_id = tracer.start_run(entrypoint="api.chat", args={"query": "Hello"})
-# ... your LLM orchestration code ...
-tracer.end_run(status="ok")
-```
-
-View traces using the CLI:
-
-```bash
-./trace ls-runs
-./trace timeline --last
-```
-
-For web integration, use the provided templates in `templates/` directory and expose the projections via your web framework.
-
----
-
-## Overview
-
-This is a **systems observability project** focused on:
-- Reconstructing the real execution flow (causality, branching, retry)
-- Structured recording of LLM calls, tool executions, router decisions, sandbox runs
-- **Semantic storytelling layer** for high-level narrative tracking (v0.1+)
-- Generating standard "views" (projections) for reliable analysis
-
-**Not about**: evaluation quality, fine-tuning, RAG quality, or custom evaluators.
-
-## What's New in v0.3
-
-- ✅ **Safe tool payload tracing** - Tool arguments, results, and LLM tool-call arguments are converted to JSON-safe values before blob storage
-- ✅ **Secret redaction for tool payloads** - Sensitive keys and token-like values are redacted before persistence and preview generation
-- ✅ **Incremental storytelling cursor** - Chat previews can return `total_events` and `last_event_index` to avoid replaying already loaded events
-- ✅ **Run/span lifecycle correctness** - Completed runs clear their context, and `span.end` events preserve the span kind
-- ✅ **Package-layout test compatibility** - The causality suite now uses the public `innertrace` package imports
-
-## What's New in v0.2
-
-- ✅ **Function-level tracing** - Decorators `@trace_function`, `trace_module`, `trace_block` for automatic instrumentation
-- ✅ **Web templates** - HTML templates for dashboard, runs, and timeline views
-- ✅ **Enhanced synthesis** - Improved LLM synthesis with configurable models
-- ✅ **Improved projections** - Better timeline views and run management
-- ✅ **Test suite** - Comprehensive tests for function tracing and serialization
-
-## What's New in v0.1
-
-- ✅ **Storytelling semantic layer** (`story.*` events)
-- ✅ **Unified event storage** - storytelling integrates with tracer's events.jsonl
-- ✅ **Projection layer** - Neutral domain model + frontend adapter separation
-- ✅ **Backward compatibility** - Falls back to legacy JSON files
-- ✅ **Blob-referenced content** - Large prompts/responses use blob store (no duplication)
-- ✅ **Linking not copying** - story.link references execution events via span_id
-
-## Stability Guarantees (v0.3)
-
-The v0.1 API remains stable. New features in v0.2 and v0.3 are additive and backward compatible.
-
-## Stability Guarantees (v0.1)
-
-### Stable API
-
-**Event vocabulary (STABLE - guaranteed across v0.1.x):**
-- Core execution events: `run.*`, `span.*`, `llm.call.*`, `tool.call.*`, `router.decision`, `sandbox.exec.*`, `exception`
-- Storytelling events (stable subset):
-  - `story.phase.start`, `story.phase.end` - Phase transitions
-  - `story.objective` - Strategic objectives
-  - `story.task` - Task events (planned, completed)
-  - `story.link` - Link storytelling to execution events (via `target_span_id`)
-
-**Storage format (STABLE):**
-- `events.jsonl` - JSONL append-only event log
-- `blobs/sha256/` - Content-addressable blob store
-- Event schema with `ts_iso`, `type`, `run_id`, `span_id`, `payload`, etc.
-
-**CLI commands (STABLE):**
-- `./trace ls-runs` - List recent runs
-- `./trace timeline <run_id>` - View timeline (canonical and compact views)
-- `./trace view run <run_id>` - View compact run
-- `./trace view failure <run_id>` - View failure context
-- `./trace blob <ref>` - View blob content
-
-### Experimental Features
-
-**⚠️ EXPERIMENTAL (may change or be removed in future versions):**
-- `story.quality.task`, `story.quality.phase` - Quality metrics events
-- `--synthesize` flag - LLM-based synthesis of prompts/responses
-- `--quality=high/low` parameter - Model selection for synthesis
-- LLM synthesis configuration via `config.json`
-
-**Note**: Experimental features are functional but may have breaking changes in minor versions (0.1.x → 0.2.0). Use with caution in production.
-
-## Architecture
-
-### Core Components
-
-1. **Event Model** (`tracer.py`): JSONL append-only event log with closed vocabulary
-2. **Blob Store** (`blob_store.py`): Content-addressable storage for large payloads
-3. **Projections** (`projections.py`): Deterministic views for analysis
-4. **CLI** (`cli.py`): Command-line interface for trace inspection
-
-### Event Types (Closed Vocabulary)
-
-**Core execution events:**
-- `run.start`, `run.end`
-- `span.start`, `span.end`
-- `llm.call.start`, `llm.call.end`
-- `tool.call.start`, `tool.call.end`
-- `router.decision`
-- `sandbox.exec.start`, `sandbox.exec.end`
-- `exception`
-
-**Storytelling events (v0.1+):**
-- **STABLE**: `story.phase.start`, `story.phase.end`, `story.objective`, `story.task`, `story.link`
-- **EXPERIMENTAL**: `story.quality.task`, `story.quality.phase`
-
-### Business Events (App-Specific)
-
-InnerTrace core vocabulary remains stable for execution observability.  
-For product KPIs (automation/channel/domain signals), emit **custom business events** with a clear prefix:
-
-- Recommended prefix: `biz.*`
-- Example: `biz.composer.request`, `biz.composer.result`
-- Keep payload compact and non-sensitive (no raw user content unless strictly needed)
-
-Example:
-
-```python
-from innertrace.tracing import get_tracer
-
-tracer = get_tracer()
-if tracer.current_run_id():
-    tracer.emit(
-        type="biz.composer.result",
-        actor="api.document_composer",
-        tags=["business", "composer", "ok"],
-        payload={
-            "project_id": project_id,
-            "document_type_id": type_id,
-            "status": "ok",
-            "latency_ms": 842,
-            "reference_count": 3,
-            "content_empty": False,
-        },
-    )
-```
-
-This does not change core semantics and enables KPI projections without a separate telemetry stack.
-
-## Usage
-
-### 1. Start a Traced Run
-
-```python
-from tracing import get_tracer
-
-tracer = get_tracer()
-
-# Start run
-run_id = tracer.start_run(
-    entrypoint="api.chat",
-    args={"query": "What is 2+2?", "user_id": "user123"},
-    env={"api_key": "secret"}  # Will be redacted
+from innertrace import Tracer
+from innertrace.tracing import (
+    emit_router_decision,
+    emit_tool_call_end,
+    emit_tool_call_start,
 )
 
-try:
-    # ... your application logic ...
-    tracer.end_run(status="ok")
-except Exception:
-    tracer.end_run(status="error")
-```
-
-### 2. Create Spans
-
-```python
-# Span tracks a logical operation
-with tracer.span(name="process_query", actor="agent.planner", kind="agent", tags=["planning"]) as span_id:
-    # ... do work ...
-    pass
-```
-
-### 3. Trace LLM Calls
-
-```python
-from tracing.tracer import emit_llm_call_start, emit_llm_call_end
-
-# Before LLM call
-emit_llm_call_start(
-    tracer,
-    model="gpt-4",
-    prompt="What is 2+2?",
-    params={"temperature": 0.7},
-    purpose="reasoning"
+tracer = Tracer(
+    events_path="traces/events.jsonl",
+    blobs_path="traces/blobs",
 )
+run_id = tracer.start_run("assistant.answer", {"request": "stock for CHAIR-42"})
 
-# Make LLM call
-response = await llm.ainvoke(messages)
-
-# After LLM call
-emit_llm_call_end(
-    tracer,
-    response=response.content,
-    usage={"input_tokens": 100, "output_tokens": 50},
-    finish_reason="stop"
-)
-```
-
-### 4. Trace Tool Calls
-
-```python
-from tracing.tracer import emit_tool_call_start, emit_tool_call_end
-
-tool_name = "web_search"
-args = {"query": "python asyncio"}
-
-emit_tool_call_start(tracer, tool_name, args)
-
-start_time = time.time()
-try:
-    result = await execute_tool(tool_name, args)
-    status = "ok"
-    error = None
-except Exception as e:
-    result = None
-    status = "error"
-    error = str(e)
-    raise
-finally:
-    latency_ms = int((time.time() - start_time) * 1000)
-    emit_tool_call_end(tracer, tool_name, result, status, latency_ms, error)
-```
-
-### 5. Trace Router Decisions
-
-```python
-from tracing.tracer import emit_router_decision
-
-emit_router_decision(
-    tracer,
-    rule="complexity_based",
-    candidates=["simple", "complex"],
-    chosen="complex",
-    why="Query requires multi-step reasoning"
-)
-```
-
-### 6. Trace Sandbox Execution
-
-```python
-from tracing.tracer import emit_sandbox_exec_start, emit_sandbox_exec_end
-
-code = "print('hello world')"
-sandbox_info = {"kind": "python", "image": "python:3.11"}
-
-emit_sandbox_exec_start(tracer, sandbox_info, code, inputs=None)
-
-try:
-    result = await sandbox.execute(code)
-    status = "ok"
-    stdout = result.get("stdout")
-    stderr = result.get("stderr")
-except Exception as e:
-    status = "error"
-    stderr = str(e)
-finally:
-    emit_sandbox_exec_end(tracer, status, stdout, stderr, result)
-```
-
-### 7. Storytelling Layer (v0.1+)
-
-The storytelling layer tracks high-level narrative using the **linking pattern** (no content duplication):
-
-```python
-from tracing import get_tracer, emit_llm_call_start, emit_llm_call_end
-from utils.storytelling import init_storytelling
-
-# Initialize with tracer
-tracer = get_tracer()
-story_manager = init_storytelling(conversation_id="conv-123", tracer=tracer)
-
-# CORRECT v0.1 pattern: First emit llm.call via tracer, then link via story.link
-with tracer.span(name="meta_planning", actor="meta_planner", kind="agent") as meta_span:
-    # Emit llm.call.start and llm.call.end (creates span_id)
-    emit_llm_call_start(
+with tracer.span("answer", actor="agent.inventory", kind="agent"):
+    emit_router_decision(
         tracer,
-        model="gpt-4",
-        prompt="Create strategic plan for document analysis",
-        purpose="planning"
+        rule="freshness",
+        candidates=["cache", "primary"],
+        chosen="primary",
     )
+    with tracer.span("lookup", actor="tool.inventory", kind="tool"):
+        emit_tool_call_start(tracer, "inventory.lookup", {"sku": "CHAIR-42"})
+        emit_tool_call_end(
+            tracer,
+            "inventory.lookup",
+            {"available": 7},
+            status="ok",
+            latency_ms=4,
+        )
 
-    # ... make actual LLM call ...
-    response = "Strategic objectives: 1) Extract metadata..."
-
-    llm_span_id = emit_llm_call_end(
-        tracer,
-        response=response,
-        usage={"input_tokens": 100, "output_tokens": 200}
-    )
-
-    # Now link storytelling context to the llm.call span (NO content duplication)
-    story_manager.log_llm_call(
-        phase="meta_planning",
-        node="meta_planner",
-        prompt="",  # Legacy parameter, not used in v0.1 events
-        response="",  # Legacy parameter, not used in v0.1 events
-        model_id="gpt-4",
-        success=True,
-        span_id=llm_span_id  # Links to execution event via span_id
-    )
-
-# EXPERIMENTAL: Log task quality metrics
-story_manager.log_task_quality(
-    task_id="task_01",
-    quality_score=0.85,
-    result_type="data_extraction",
-    key_insights=["Found 100 documents", "High accuracy"],
-    success_criteria_met=["All files processed"],
-    execution_difficulty="medium"
-)
+tracer.end_run("ok")
+print(run_id)
 ```
 
-**Frontend Integration**: Uses two-layer architecture (domain + adapter):
+Tracing is inert outside an active run. The integration wrappers under
+`innertrace.tracing.integration` can instrument existing async LLM, tool,
+router, and sandbox calls without changing the event vocabulary.
+
+## Inspect traces
+
+The installed CLI reads traces without mutating them:
+
+```bash
+innertrace ls-runs
+innertrace timeline --last
+innertrace view run --last
+innertrace view failure --run-id <run-id>
+innertrace view tool-chain --span-id <span-id>
+innertrace blob --ref blob:sha256:<hash>
+```
+
+Global paths precede the subcommand:
+
+```bash
+innertrace \
+  --events-path /path/to/events.jsonl \
+  --blobs-path /path/to/blobs \
+  timeline --last
+```
+
+The canonical timeline preserves the span hierarchy. `--compact` is a lossy
+overview intended for quick inspection, not root-cause analysis.
+
+## What is recorded
+
+Each line of `events.jsonl` contains timestamps, run/span IDs, parent causality,
+actor, level, tags, event type, and a redacted payload. Large arguments,
+results, prompts, responses, code, and stack traces live in
+`blobs/sha256/`; events keep their `blob:sha256:...` references.
+
+The established vocabulary includes:
+
+| Layer | Events |
+| --- | --- |
+| Lifecycle | `run.start`, `run.end`, `span.start`, `span.end`, `exception` |
+| Models | `llm.call.start`, `llm.call.end` |
+| Tools and routing | `tool.call.start`, `tool.call.end`, `router.decision` |
+| Sandboxes | `sandbox.exec.start`, `sandbox.exec.end`, `code_execution_error` |
+| Story | `story.phase.start`, `story.phase.end`, `story.objective`, `story.task`, `story.link` |
+
+InnerTrace 0.3.1 preserves the 0.2 public imports, event names, JSONL records,
+blob references, projections, function tracing, and storytelling APIs. The
+`story.quality.*` events and optional synthesis settings remain experimental.
+
+## HTML viewers
+
+The wheel contains the existing index, runs, and timeline templates. Embedding
+applications can load them without relying on a checkout path:
 
 ```python
-from utils.storytelling.story_projection import StoryProjector
-from utils.storytelling.frontend_adapter import FrontendAdapter
+from innertrace import get_template_text, template_names
 
-# Layer 1: Project events into neutral domain model
-projector = StoryProjector()
-projection = projector.project("conv-123")
-
-# Layer 2: Adapt to frontend JSON format
-frontend_json = FrontendAdapter.to_frontend_json(projection)
-
-# Or use the convenience wrapper:
-from utils.storytelling import StorytellingExtractor
-extractor = StorytellingExtractor()
-storytelling_json = extractor.load_storytelling("conv-123")
-# Returns identical format as before (backward compatible)
+print(template_names())
+timeline_html = get_template_text("timeline.html")
 ```
 
-### 8. Function-Level Tracing
-
-InnerTrace provides **declarative function-level tracing** without global hooks or monkey patching. This allows you to instrument individual functions or entire modules with automatic tracing of arguments, return values, and exceptions.
-
-#### Decorator: `@trace_function`
-
-Trace individual functions with full control over what's captured:
-
-```python
-from innertrace import trace_function, get_tracer
-
-tracer = get_tracer()
-
-@trace_function(capture_args=True, capture_return=False)
-def process_document(doc_id: str, options: dict):
-    """Process a document with automatic tracing."""
-    # Your logic here
-    return {"status": "processed", "doc_id": doc_id}
-
-@trace_function(name="custom_name", capture_return=True)
-async def async_process(data):
-    """Async functions are automatically detected."""
-    result = await external_api_call(data)
-    return result
-
-# Use within a traced run
-run_id = tracer.start_run(entrypoint="api.process", args={})
-result = process_document("doc-123", {"validate": True})
-tracer.end_run(status="ok")
-```
-
-**Parameters:**
-- `name`: Custom span name (default: `module.qualname`)
-- `capture_args`: Capture function arguments (default: `True`)
-- `capture_return`: Capture return value (default: `False`)
-- `redact`: Additional keys to redact beyond standard secrets
-- `max_repr`: Maximum length for repr() of objects (default: 500)
-- `max_items`: Maximum items in lists/dicts (default: 50)
-
-**Features:**
-- ✅ Works with both sync (`def`) and async (`async def`) functions
-- ✅ Automatic argument serialization with size limits
-- ✅ Secret redaction (passwords, API keys, tokens)
-- ✅ Exception tracking (logged and re-raised, never suppressed)
-- ✅ Hierarchical span tracking (nested function calls)
-- ✅ No tracing overhead when not in a run
-
-#### Module Provider: `trace_module()`
-
-Instrument **all functions in a module** with a single call:
-
-```python
-from innertrace import trace_module
-
-def public_function():
-    """This will be traced."""
-    pass
-
-def _private_function():
-    """This will NOT be traced (unless include_private=True)."""
-    pass
-
-def special_handler():
-    """This will be traced."""
-    pass
-
-# At end of file - instrument all public functions
-trace_module(globals(), include_private=False)
-
-# With custom configuration
-trace_module(
-    globals(),
-    include_private=True,          # Include private functions (starting with _)
-    exclude=["special_*"],         # Exclude patterns (fnmatch)
-    redact=["custom_secret"],      # Additional redaction keys
-    name_prefix="mymodule"         # Prefix for span names
-)
-```
-
-**Note:** Only functions **defined in the current module** are wrapped. Imported functions are automatically skipped.
-
-#### Context Manager: `trace_block()`
-
-Trace arbitrary code blocks with custom metadata:
-
-```python
-from innertrace import trace_block
-
-# Synchronous context
-with trace_block("data_processing", payload={"records": 100}):
-    process_records()
-
-# Asynchronous context
-from innertrace import trace_block_async
-
-async with trace_block_async("async_operation", payload={"items": 50}):
-    await process_async()
-```
-
-#### Viewing Function Traces
-
-**Full timeline** (default - includes function calls):
-```bash
-./trace timeline <run_id>
-# Shows:
-# [12:34:56.789]   span.start               [function] process_document
-# [12:34:56.791]     llm.call.start         (gpt-4, reasoning)
-# [12:34:56.899]     llm.call.end           (200 tokens, 108ms)
-# [12:34:56.900]   span.end                 (ok, 111ms total)
-```
-
-**Compact view** (excludes function calls for quick overview):
-```bash
-./trace timeline --compact <run_id>
-# Shows only LLM calls, run boundaries (no function-level spans)
-```
-
-**Verbose view** (shows function arguments in payload):
-```bash
-./trace timeline --verbose <run_id>
-# Includes redacted function arguments and metadata
-```
-
-#### Event Structure
-
-Function tracing emits standard `span.start` and `span.end` events with `kind="function"`:
-
-**span.start payload:**
-```json
-{
-  "name": "module.function_name",
-  "kind": "function",
-  "func": "module.submodule.FunctionName",
-  "args": [10, 20],
-  "kwargs": {"option": "value"}
-}
-```
-
-**span.end payload:**
-```json
-{
-  "status": "ok",
-  "latency_ms": 123,
-  "return": "result_value"  // only if capture_return=True
-}
-```
-
-**No Breaking Changes:** Function tracing uses existing event types and is fully compatible with all projections and views.
-
-### 9. Using Integration Helpers
-
-The `integration.py` module provides convenience wrappers:
-
-```python
-from tracing.integration import (
-    traced_llm_generate,
-    traced_tool_call,
-    trace_router_decision,
-    traced_sandbox_exec,
-    start_traced_run,
-    end_traced_run
-)
-
-# Traced LLM call (async wrapper)
-response = await traced_llm_generate(
-    llm.ainvoke,
-    model_id="gpt-4",
-    messages=messages,
-    params={"temperature": 0.7},
-    purpose="reasoning"
-)
-
-# Traced tool call (decorator)
-@traced_tool_call("search_web")
-async def search_web(query: str):
-    return {"results": [...]}
-
-# Router decision (direct call)
-trace_router_decision(
-    rule="complexity",
-    candidates=["fast", "deep"],
-    chosen="deep",
-    why="Complex query detected"
-)
-
-# Traced sandbox execution (async wrapper)
-result = await traced_sandbox_exec(
-    sandbox.execute,
-    code="print('hello')",
-    sandbox_info={"kind": "python"}
-)
-```
-
-## CLI Usage
-
-### List Recent Runs
+The committed screenshot is generated from the real offline demo and bundled
+timeline template:
 
 ```bash
-./trace ls-runs --limit 10
+python examples/agent_failure_demo.py \
+  --output-dir .demo-output \
+  --html docs/demo/agent-failure.html \
+  --screenshot docs/assets/agent-failure-demo.png
 ```
 
-### View Timeline (Canonical View)
+Refreshing the PNG requires a local Chrome or Chromium executable. Generating
+the trace and HTML does not.
 
-**Canonical view (default) - Complete hierarchical trace:**
-```bash
-./trace timeline --last
-```
-
-This is the **source of truth view** - deterministic, complete, suitable for both human analysis and LLM-based debugging. Preserves full causal structure with span hierarchy.
-
-**Compact view (lossy projection) - LLM calls only:**
-```bash
-./trace timeline --last --compact
-```
-
-Shows only LLM calls with component context. Useful for quick cost/performance overview, but **not suitable for root-cause analysis**.
-
-**⚠️ EXPERIMENTAL: With LLM synthesis (summarize prompts/responses):**
-```bash
-./trace timeline --last --synthesize --quality=high  # High quality (default)
-./trace timeline --last --synthesize --quality=low    # Low quality (faster/cheaper)
-```
-**Note**: The `--synthesize` and `--quality` flags are experimental and may change in future versions.
-
-**Other filters:**
-```bash
-./trace timeline --last-error              # Most recent error
-./trace timeline --last-ok                 # Most recent success
-./trace timeline --last --endpoint api.chat_v2  # Filter by endpoint
-./trace timeline --run-id <run_id>         # Explicit run ID
-```
-
-**Output format:**
-- Complete hierarchy with indentation
-- Component context for LLM calls: `[meta_planner]`, `[code_orchestrator #2]`
-- Token count and duration on `llm.call.end`: `(7,295 tokens, 12.73s) [meta_planner]`
-- Semantic status on `span.end`: `(ok, 12.87s)` (aggregated, not per-call)
-
-### ⚠️ EXPERIMENTAL: LLM Synthesis Configuration
-
-**Note**: This feature is experimental and may change in future versions.
-
-When using `--synthesize`, the system uses LLM models to summarize prompts and responses. You can configure the models via `tracing/config.json` and API keys via `tracing/.env`.
-
-**1. Configure models in `tracing/config.json`:**
-
-```json
-{
-  "models": {
-    "low": {
-      "model": "vllm/google/gemma-3-270m-it",
-      "description": "Fast and cost-effective Gemma model for quick synthesis"
-    },
-    "high": {
-      "model": "vllm/qwen3-30b-a3b-thinking-2507-awq-4bit",
-      "description": "More capable Qwen model for better quality synthesis"
-    }
-  },
-  "default_quality": "high",
-  "base_url": "http://localhost:8000/v1"
-}
-```
-
-**2. Configure API key in `tracing/.env`:**
+## Development
 
 ```bash
-# Copy tracing/env.example to tracing/.env and fill in your OpenAI-compatible API key
-BF_TRACE_SYNTHESIS_API_KEY=sk-your-api-key-here
-
-# Optional: Override base URL (default is read from config.json)
-# BF_TRACE_SYNTHESIS_BASE_URL=http://localhost:8000/v1
+python -m pip install -e '.[dev]'
+python -m pytest
+python -m build
+python -m twine check dist/*
 ```
 
-**3. Use quality parameter:**
-
-```bash
-# High quality (uses model from config.json "high" section)
-./trace timeline --last --synthesize --quality=high
-
-# Low quality (uses model from config.json "low" section)
-./trace timeline --last --synthesize --quality=low
-```
-
-The `--quality` parameter selects which model to use from `config.json`. This allows you to choose between faster/cheaper models (low) or more capable models (high) based on your needs.
-
-### View Compact Run
-
-**With run ID:**
-```bash
-./trace view run --run-id <run_id>
-```
-
-**Most recent run:**
-```bash
-./trace view run --last
-```
-
-**Most recent error:**
-```bash
-./trace view run --last-error
-```
-
-### View Failure Context
-
-**With run ID:**
-```bash
-./trace view failure --run-id <run_id> --n 80
-```
-
-**Most recent error (default):**
-```bash
-./trace view failure --last
-```
-
-**Most recent successful run:**
-```bash
-./trace view failure --last-ok
-```
-
-### View Tool Chain
-
-```bash
-python -m tracing.cli view tool-chain --span-id <span_id>
-```
-
-### View LLM Call Details
-
-```bash
-python -m tracing.cli view llm --span-id <span_id>
-```
-
-### View Blob Content
-
-```bash
-python -m tracing.cli blob --ref blob:sha256:<hash>
-```
-
-## Projections
-
-Projections are deterministic views that reduce complexity for analysis:
-
-### 1. compact_run_view
-
-Returns a compact list of key events (router decisions, tool calls, LLM calls, exceptions).
-
-```python
-from tracing.projections import compact_run_view
-
-view = compact_run_view(run_id)
-# Returns: {"run_id": "...", "items": [...]}
-```
-
-### 2. failure_context_view
-
-Returns context around first exception (last N events + parent span tree).
-
-```python
-from tracing.projections import failure_context_view
-
-view = failure_context_view(run_id, n=80)
-# Returns: {"run_id": "...", "exception": {...}, "preceding_events": [...], "span_tree": [...]}
-```
-
-### 3. tool_chain_view
-
-Returns all tool calls descending from a span.
-
-```python
-from tracing.projections import tool_chain_view
-
-view = tool_chain_view(span_id)
-# Returns: {"span_id": "...", "tool_calls": [...]}
-```
-
-### 4. llm_call_view
-
-Returns detailed LLM call info (refs + previews, not full content).
-
-```python
-from tracing.projections import llm_call_view
-
-view = llm_call_view(span_id)
-# Returns: {"span_id": "...", "model": "...", "prompt_ref": "...", "usage": {...}, ...}
-```
-
-## Integration Points
-
-To integrate tracing into your codebase, add hooks at these central points:
-
-### 1. ModelProvider.generate / generate_simple
-
-Add tracing around LLM calls in the generate methods.
-
-**Location**: `utils/models/model_provider.py`
-
-**Before**:
-```python
-response = await llm_instance.ainvoke(messages, **kwargs)
-```
-
-**After**:
-```python
-from tracing.integration import traced_llm_generate
-
-response = await traced_llm_generate(
-    llm_instance.ainvoke,
-    model_id=model_id,
-    messages=messages,
-    params={"temperature": kwargs.get("temperature", 0.7)},
-    purpose="generation"
-)
-```
-
-### 2. Tool Dispatcher / Registry
-
-Add tracing around tool execution.
-
-**Location**: Find central tool execution point (likely in tool handling code)
-
-**Pattern**:
-```python
-from tracing.integration import traced_tool_call
-
-@traced_tool_call("tool_name")
-async def execute_tool(tool_name: str, args: dict):
-    # ... existing tool execution logic ...
-    pass
-```
-
-### 3. Router Decision Function
-
-Add router decision logging.
-
-**Location**: Find where routing decisions are made
-
-**Pattern**:
-```python
-from tracing.integration import trace_router_decision
-
-# After making routing decision
-trace_router_decision(
-    rule="rule_name",
-    candidates=["option1", "option2"],
-    chosen=selected_option,
-    why="reasoning for decision"
-)
-```
-
-### 4. Sandbox Execution Entrypoint
-
-Add tracing around sandbox execution.
-
-**Location**: Find sandbox execution entrypoint
-
-**Pattern**:
-```python
-from tracing.integration import traced_sandbox_exec
-
-result = await traced_sandbox_exec(
-    sandbox.execute,
-    code=code,
-    sandbox_info={"kind": "python", "image": "python:3.11"},
-    inputs=inputs
-)
-```
-
-### 5. Global Exception Boundary
-
-Add exception tracing at top-level error handlers.
-
-**Pattern**:
-```python
-from tracing import get_tracer
-
-try:
-    # ... application logic ...
-except Exception as e:
-    tracer = get_tracer()
-    tracer.emit_exception(e, actor="app.main")
-    raise
-```
-
-## Storage Structure
-
-```
-traces/
-├── events.jsonl          # Append-only event log
-└── blobs/
-    └── sha256/
-        ├── <hash>.txt    # Text blobs (prompts, code, stdout, etc.)
-        └── <hash>.json   # JSON blobs (structured data)
-```
-
-## Invariants
-
-1. Every run has exactly 1 `run.start` and 1 `run.end`
-2. Every span has exactly 1 `span.start` and 1 `span.end`
-3. Every `llm.call.start` has corresponding `llm.call.end` in same span
-4. Every `tool.call.start` has corresponding `tool.call.end` in same span
-5. No secrets in cleartext (automatic redaction)
-
-## Secret Redaction
-
-Automatic redaction of sensitive keys:
-- `api_key`, `token`, `password`, `secret`, `authorization`, etc.
-- Pattern matching for Bearer tokens, API keys, etc.
-
-## Dependencies
-
-Minimal dependencies (stdlib only):
-- `json`, `hashlib`, `pathlib`, `threading`, `contextvars`, `time`, `traceback`
-
-Optional:
-- `ulid` for better run IDs (falls back to `uuid`)
-
-## Example: Full Integration
-
-```python
-from tracing import get_tracer
-from tracing.integration import start_traced_run, end_traced_run
-
-# Application entry point
-def main():
-    run_id = start_traced_run(
-        entrypoint="cli.main",
-        args={"command": "chat", "query": "hello"}
-    )
-
-    start_time = time.time()
-
-    try:
-        # Get tracer
-        tracer = get_tracer()
-
-        # Create main span
-        with tracer.span("main_execution", "app", "function"):
-            # ... your application logic with nested spans ...
-            result = process_query(query)
-
-        # End run successfully
-        latency_ms = int((time.time() - start_time) * 1000)
-        end_traced_run("ok", latency_ms)
-
-    except Exception as e:
-        latency_ms = int((time.time() - start_time) * 1000)
-        end_traced_run("error", latency_ms)
-        raise
-```
-
-## Performance Considerations
-
-- Events are written append-only (fast)
-- Blob storage is idempotent (deduplication via content-addressing)
-- Thread-safe and exception-safe (won't break runs)
-- Automatic secret redaction
-- Preview truncation for large content
-
-## Next Steps
-
-1. Add hooks to ModelProvider LLM calls
-2. Add hooks to tool execution dispatcher
-3. Add hooks to router decision points
-4. Add hooks to sandbox execution
-5. Add exception boundary at API entry points
-6. Test with real runs
-7. Use CLI to inspect traces
-8. Analyze with projections
+See [CONTRIBUTING.md](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/CONTRIBUTING.md)
+before changing event or storage contracts. Until 0.3.1 clears its release
+gate, the Quick Start deliberately installs the candidate branch; publication
+and signing remain explicit release actions.

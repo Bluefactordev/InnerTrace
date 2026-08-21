@@ -8,6 +8,9 @@ from .tracing.function_tracing import (
     set_global_trace_filters,
     get_global_trace_filters,
 )
+from .resources import get_template_text, template_names
+
+__version__ = "0.3.1"
 
 __all__ = [
     "Tracer",
@@ -19,4 +22,7 @@ __all__ = [
     "trace_module",
     "set_global_trace_filters",
     "get_global_trace_filters",
+    "get_template_text",
+    "template_names",
+    "__version__",
 ]
