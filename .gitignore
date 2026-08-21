@@ -9,11 +9,15 @@ venv/
 *.egg-info/
 dist/
 build/
+.coverage
+.pytest_cache/
 
 # Tracing data (traces are local, not versioned)
 traces/
 *.jsonl
 blobs/
+demo_output/
+.demo-output/
 
 # Environment files (secrets)
 .env

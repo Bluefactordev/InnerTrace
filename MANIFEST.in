@@ -1,0 +1,7 @@
+include CHANGELOG.md
+include CONTRIBUTING.md
+include LICENSE
+include README.md
+recursive-include docs *.html *.md *.png
+recursive-include examples *.py
+recursive-include templates *.html

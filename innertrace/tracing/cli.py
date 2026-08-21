@@ -23,9 +23,23 @@ from .projections import (
 )
 
 
+def _configuration_path(filename: str, env_name: str) -> Path:
+    """Resolve user configuration while preserving the legacy package path."""
+
+    configured_path = os.environ.get(env_name)
+    if configured_path:
+        return Path(configured_path).expanduser()
+
+    cwd_path = Path.cwd() / ".innertrace" / filename
+    if cwd_path.exists():
+        return cwd_path
+
+    return Path(__file__).parent / filename
+
+
 def load_config():
-    """Load configuration from tracing/config.json."""
-    config_path = Path(__file__).parent / "config.json"
+    """Load optional synthesis configuration."""
+    config_path = _configuration_path("config.json", "INNERTRACE_CONFIG_PATH")
     if config_path.exists():
         try:
             with open(config_path, "r") as f:
@@ -36,8 +50,8 @@ def load_config():
 
 
 def load_env_file():
-    """Load environment variables from tracing/.env if present."""
-    env_path = Path(__file__).parent / ".env"
+    """Load optional synthesis environment values without replacing process values."""
+    env_path = _configuration_path(".env", "INNERTRACE_ENV_PATH")
     if env_path.exists():
         try:
             with open(env_path, "r") as f:
@@ -246,7 +260,7 @@ def cmd_timeline(args):
         if not config or "quality_levels" not in config or quality not in config.get("quality_levels", {}):
             print(
                 f"Error: No configuration found for quality '{quality}'.\n"
-                f"Configure providers in tracing/config.json under 'quality_levels' -> '{quality}' -> 'providers'",
+                f"Configure providers in .innertrace/config.json under 'quality_levels' -> '{quality}' -> 'providers'",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -270,7 +284,7 @@ def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         description="CLI for trace viewing and analysis",
-        prog="trace"
+        prog="innertrace"
     )
 
     parser.add_argument(
@@ -343,13 +357,13 @@ def main():
         "--synthesize",
         action="store_true",
         default=False,
-        help="Enable LLM-based synthesis of prompts/responses (configure via tracing/config.json and tracing/.env)",
+        help="Enable LLM-based synthesis of prompts/responses (configure via .innertrace/config.json)",
     )
     parser_timeline.add_argument(
         "--quality",
         choices=["low", "medium", "high", "highest"],
         default="high",
-        help="Quality level for synthesis: 'low', 'medium', 'high', or 'highest'. Models and providers configured in tracing/config.json. If 'external' config is set, uses its quality automatically.",
+        help="Quality level for synthesis. Models and providers are configured in .innertrace/config.json.",
     )
     parser_timeline.add_argument(
         "--verbose",
