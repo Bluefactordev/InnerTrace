@@ -1,0 +1,91 @@
+name: Publish distributions
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Package index
+        required: true
+        type: choice
+        options:
+          - testpypi
+          - pypi
+      source_run_id:
+        description: TestPyPI workflow run containing the verified release-dist artifact (required for PyPI)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade build twine
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    if: >-
+      always() &&
+      ((inputs.target == 'testpypi' && needs.build.result == 'success') ||
+       (inputs.target == 'pypi' && inputs.source_run_id != ''))
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.target }}
+      url: ${{ inputs.target == 'testpypi' && 'https://test.pypi.org/p/innertrace' || 'https://pypi.org/p/innertrace' }}
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - name: Download distributions built for TestPyPI
+        uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+          run-id: ${{ inputs.target == 'pypi' && inputs.source_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate distributions and release tag
+        env:
+          PUBLISH_TARGET: ${{ inputs.target }}
+          RELEASE_REF: ${{ github.ref_name }}
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+          python - <<'PY'
+          import email.parser
+          import glob
+          import os
+          import zipfile
+
+          wheels = glob.glob("dist/*.whl")
+          assert len(wheels) == 1, wheels
+          with zipfile.ZipFile(wheels[0]) as archive:
+              metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+              metadata = email.parser.BytesParser().parsebytes(archive.read(metadata_name))
+          version = metadata["Version"]
+          if os.environ["PUBLISH_TARGET"] == "pypi":
+              assert os.environ["RELEASE_REF"] == f"v{version}", (
+                  os.environ["RELEASE_REF"], version
+              )
+          PY
+      - name: Publish exact verified distributions
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ inputs.target == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}

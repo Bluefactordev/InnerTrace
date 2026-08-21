@@ -24,6 +24,7 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: python -m pytest
       - run: innertrace --help
+      - run: innertrace demo --output-dir "${RUNNER_TEMP}/innertrace-cli-demo"
       - run: python examples/agent_failure_demo.py --output-dir "${RUNNER_TEMP}/innertrace-demo"
 
   distribution:
@@ -48,6 +49,7 @@ jobs:
           with zipfile.ZipFile(wheels[0]) as archive:
               names = set(archive.namelist())
           required = {
+              "innertrace/demo.py",
               "innertrace/py.typed",
               "innertrace/templates/index.html",
               "innertrace/templates/runs.html",
@@ -56,6 +58,11 @@ jobs:
               "innertrace/tracing/config.json.example",
           }
           assert required <= names, required - names
+          forbidden = {
+              "innertrace/tracing/.env",
+              "innertrace/tracing/config.json",
+          }
+          assert not forbidden & names, forbidden & names
           PY
       - name: Smoke-test installed wheel
         run: |
@@ -63,8 +70,10 @@ jobs:
           "${RUNNER_TEMP}/innertrace-wheel/bin/pip" install dist/*.whl
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/innertrace-wheel/bin/python" -c \
-            'import innertrace; assert innertrace.__version__ == "0.3.0"; assert innertrace.get_template_text("timeline.html")'
+            'import innertrace; assert innertrace.__version__ == "0.3.1"; assert innertrace.get_template_text("timeline.html")'
           "${RUNNER_TEMP}/innertrace-wheel/bin/innertrace" --help
+          "${RUNNER_TEMP}/innertrace-wheel/bin/innertrace" demo \
+            --output-dir "${RUNNER_TEMP}/innertrace-wheel-cli-demo"
           cd "${GITHUB_WORKSPACE}"
           "${RUNNER_TEMP}/innertrace-wheel/bin/python" examples/agent_failure_demo.py \
             --output-dir "${RUNNER_TEMP}/innertrace-wheel-demo"
