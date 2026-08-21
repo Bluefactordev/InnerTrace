@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _semantic_events(path: Path):
-    ignored_payload_keys = {"args_ref", "duration_ms"}
     return [
         {
             "type": event["type"],
@@ -21,7 +20,9 @@ def _semantic_events(path: Path):
             "payload": {
                 key: value
                 for key, value in event.get("payload", {}).items()
-                if key not in ignored_payload_keys and not key.endswith("_ref")
+                if key != "args_ref"
+                and not key.endswith("_ref")
+                and not (event["type"] == "span.end" and key == "latency_ms")
             },
         }
         for event in (
