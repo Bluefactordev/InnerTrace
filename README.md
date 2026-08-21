@@ -15,10 +15,10 @@ branch, the retry, and the corrected final answer.
 
 ## Quick Start
 
-Install InnerTrace 0.3.1 and run its offline demo:
+Install the InnerTrace 0.3.1 release candidate and run its offline demo:
 
 ```bash
-python -m pip install innertrace==0.3.1
+python -m pip install "innertrace @ git+https://github.com/Bluefactordev/InnerTrace.git@codex/innertrace-star-readiness"
 innertrace demo
 innertrace --events-path demo_output/traces/events.jsonl timeline --last
 ```
@@ -188,5 +188,6 @@ python -m twine check dist/*
 ```
 
 See [CONTRIBUTING.md](https://github.com/Bluefactordev/InnerTrace/blob/codex/innertrace-star-readiness/CONTRIBUTING.md)
-before changing event or storage contracts. Release publication and signing
-remain explicit release-gate actions.
+before changing event or storage contracts. Until 0.3.1 clears its release
+gate, the Quick Start deliberately installs the candidate branch; publication
+and signing remain explicit release actions.

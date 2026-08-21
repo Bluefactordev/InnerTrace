@@ -35,7 +35,7 @@ def test_readme_uses_installable_public_paths():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "from innertrace import Tracer" in readme
-    assert "python -m pip install innertrace==0.3.1" in readme
+    assert 'python -m pip install "innertrace @ git+https://github.com/' in readme
     assert "innertrace demo" in readme
     assert "innertrace --events-path" in readme
     assert "from tracing" not in readme

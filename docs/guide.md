@@ -4,10 +4,11 @@ This guide covers the supported package paths beyond the README Quick Start.
 
 ## Install
 
-Install the released package or a locally built wheel:
+Until 0.3.1 clears its release gate, install the candidate branch or a locally
+built wheel:
 
 ```bash
-python -m pip install innertrace==0.3.1
+python -m pip install "innertrace @ git+https://github.com/Bluefactordev/InnerTrace.git@codex/innertrace-star-readiness"
 # or
 python -m pip install dist/innertrace-0.3.1-py3-none-any.whl
 ```
